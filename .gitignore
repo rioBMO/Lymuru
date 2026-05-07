@@ -1,0 +1,39 @@
+# Environment
+.env
+.env.docker
+
+# Downloads
+downloads/
+
+# Uploads
+uploads/
+
+# Telethon session
+*.session
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Anomali
+.cache
+.lymuru-project-prompt (2).md

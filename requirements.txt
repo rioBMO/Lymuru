@@ -1,0 +1,10 @@
+telethon
+requests
+mutagen
+python-dotenv
+pykakasi
+pypinyin
+korean-romanizer
+fastapi
+uvicorn[standard]
+python-multipart
