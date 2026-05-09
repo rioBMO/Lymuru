@@ -66,6 +66,22 @@
     }, 3500);
   }
 
+  // ── Link status message ─────────────────────────────────────────
+  var linkStatus = document.getElementById("link-status");
+
+  function setLinkStatus(message, variant) {
+    if (!linkStatus) return;
+    if (!message) {
+      linkStatus.hidden = true;
+      linkStatus.textContent = "";
+      linkStatus.className = "link-status";
+      return;
+    }
+    linkStatus.hidden = false;
+    linkStatus.textContent = message;
+    linkStatus.className = "link-status" + (variant ? " " + variant : "");
+  }
+
   // ── API fetch helper ──────────────────────────────────────────────
   async function apiFetch(path, opts) {
     var resp = await fetch(API_BASE + path, opts || {});
@@ -255,7 +271,7 @@
   }
 
   // ── Task progress polling ─────────────────────────────────────────
-  async function pollTaskProgress(taskId, ctrl, onDone, onChoiceNeeded) {
+  async function pollTaskProgress(taskId, ctrl, onDone, onChoiceNeeded, onError) {
     var maxPolls = 300; // 5 minutes max
     var interval = 600;
 
@@ -274,6 +290,7 @@
         if (status.done) {
           if (status.error) {
             showToast(status.error, "error");
+            if (onError) onError(status.error);
             ctrl.hide();
             return;
           }
@@ -292,6 +309,7 @@
     }
 
     showToast("Task timed out", "error");
+    if (onError) onError("Task timed out");
     ctrl.hide();
   }
 
@@ -633,6 +651,7 @@
       var link = formLink.elements.link.value.trim();
       if (!link) return;
 
+      setLinkStatus("");
       document.getElementById("download-complete-link").hidden = true;
       document.getElementById("lyrics-choice-link").hidden = true;
       var ctrl = startTaskProgress("progress-link");
@@ -645,14 +664,463 @@
         await pollTaskProgress(resp.task_id, ctrl, function (files) {
           document.getElementById("progress-link").hidden = true;
           showDownloadFiles("download-files-link", files);
+          setLinkStatus("Track retrieved. Download ready.", "success");
         }, function (taskId) {
           document.getElementById("progress-link").hidden = true;
           showLyricsChoice("link", taskId);
+        }, function (errMsg) {
+          var msg = errMsg || "No track found for this link";
+          if (msg.toLowerCase().indexOf("no audio") !== -1 || msg.toLowerCase().indexOf("timed out") !== -1) {
+            msg = "No track found for this link";
+          }
+          setLinkStatus(msg, "error");
         });
       } catch (err) {
         showToast(err.message, "error");
         document.getElementById("progress-link").hidden = true;
+        setLinkStatus(err.message, "error");
       }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Tab 7: Bulk Download
+  // ══════════════════════════════════════════════════════════════════
+  var bulkAddBtn = document.getElementById("bulk-add");
+  var bulkStartBtn = document.getElementById("bulk-start");
+  var bulkList = document.getElementById("bulk-list");
+  var bulkCounter = document.getElementById("bulk-counter");
+  var bulkModePicker = document.getElementById("bulk-mode-picker");
+  var bulkSetup = document.getElementById("bulk-setup");
+  var bulkRunner = document.getElementById("bulk-runner");
+  var bulkRunnerIndex = document.getElementById("bulk-runner-index");
+  var bulkRunnerFound = document.getElementById("bulk-runner-found");
+  var bulkRunnerSelected = document.getElementById("bulk-runner-selected");
+  var bulkRunnerStage = bulkRunner ? bulkRunner.querySelector("[data-bulk-runner-stage]") : null;
+  var bulkRunnerPercent = bulkRunner ? bulkRunner.querySelector("[data-bulk-runner-percent]") : null;
+  var bulkRunnerFill = bulkRunner ? bulkRunner.querySelector("[data-bulk-runner-fill]") : null;
+  var bulkItems = [];
+  var bulkRunning = false;
+
+  function updateBulkCounter() {
+    if (bulkCounter) {
+      bulkCounter.textContent = bulkItems.length + " / 30";
+    }
+    if (bulkStartBtn) {
+      bulkStartBtn.disabled = bulkItems.length === 0 || bulkRunning;
+    }
+  }
+
+  function setBulkControlsDisabled(disabled) {
+    if (bulkAddBtn) bulkAddBtn.disabled = disabled;
+    if (bulkStartBtn) bulkStartBtn.disabled = disabled || bulkItems.length === 0;
+    if (bulkModePicker) {
+      bulkModePicker.querySelectorAll("button").forEach(function (btn) {
+        btn.disabled = disabled;
+      });
+    }
+    if (bulkList) {
+      bulkList.querySelectorAll("input, button").forEach(function (el) {
+        if (el.classList.contains("download-file-btn")) return;
+        el.disabled = disabled;
+      });
+    }
+  }
+
+  function setBulkRunnerVisible(visible) {
+    if (bulkSetup) bulkSetup.hidden = visible;
+    if (bulkRunner) bulkRunner.hidden = !visible;
+  }
+
+  function setBulkRunnerLine(el, value) {
+    if (!el) return;
+    el.textContent = value || "";
+  }
+
+  function updateBulkRunnerFoundFromStage(stageText) {
+    if (!stageText || !bulkRunnerFound) return;
+    var text = "Finding track…";
+    if (stageText.indexOf("Downloading audio") !== -1 || stageText.indexOf("Extracting metadata") !== -1) {
+      text = "Track found";
+    } else if (stageText.indexOf("Searching lyrics") !== -1 || stageText.indexOf("Embedding") !== -1) {
+      text = "Track found";
+    } else if (stageText.indexOf("Choose lyrics") !== -1 || stageText.indexOf("Complete") !== -1) {
+      text = "Track found";
+    } else if (stageText.indexOf("Error") !== -1) {
+      text = "Not found";
+    }
+    bulkRunnerFound.textContent = text;
+  }
+
+  function createBulkRunnerProgressCtrl() {
+    return {
+      reset: function () {
+        if (bulkRunnerStage) bulkRunnerStage.textContent = "Preparing…";
+        if (bulkRunnerPercent) bulkRunnerPercent.textContent = "0%";
+        if (bulkRunnerFill) bulkRunnerFill.style.width = "0%";
+      },
+      setPhase: function (status) {
+        if (bulkRunnerStage) bulkRunnerStage.textContent = status.stage || "Processing…";
+        updateBulkRunnerFoundFromStage(status.stage || "");
+        if (status.phase === "downloading") {
+          var pct = status.download_percent || 0;
+          if (bulkRunnerFill) bulkRunnerFill.style.width = pct + "%";
+          if (bulkRunnerPercent) bulkRunnerPercent.textContent = Math.round(pct) + "%";
+        }
+      },
+    };
+  }
+
+  function createBulkProgressCtrl(itemEl) {
+    var progress = itemEl.querySelector("[data-bulk-progress]");
+    var stageEl = itemEl.querySelector("[data-bulk-stage]");
+    var pctEl = itemEl.querySelector("[data-bulk-percent]");
+    var fill = itemEl.querySelector("[data-bulk-fill]");
+    if (progress) progress.hidden = false;
+    if (fill) fill.style.width = "0%";
+    if (pctEl) pctEl.textContent = "0%";
+    return {
+      setPhase: function (status) {
+        if (stageEl) stageEl.textContent = status.stage || "Processing…";
+        if (status.phase === "downloading") {
+          var pct = status.download_percent || 0;
+          if (fill) fill.style.width = pct + "%";
+          if (pctEl) pctEl.textContent = Math.round(pct) + "%";
+        }
+      },
+      hide: function () {
+        if (progress) progress.hidden = true;
+      },
+    };
+  }
+
+  function showDownloadFilesInto(container, files) {
+    if (!container) return;
+    container.innerHTML = "";
+    files.forEach(function (f) {
+      var a = document.createElement("a");
+      a.className = "download-file-btn";
+      a.href = API_BASE + f.url;
+      a.download = f.filename;
+      a.innerHTML =
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+        f.filename + " (" + formatSize(f.size) + ")";
+      container.appendChild(a);
+    });
+  }
+
+  function createBulkItem(mode) {
+    var itemId = "bulk-" + Date.now() + "-" + Math.floor(Math.random() * 10000);
+    var el = document.createElement("div");
+    el.className = "card bulk-item";
+    el.setAttribute("data-bulk-id", itemId);
+
+    var titleLabel = mode === "search" ? "Search" : "Link";
+    var headerHtml =
+      '<div class="bulk-item-header">' +
+        '<div class="bulk-item-title">' + titleLabel + '</div>' +
+        '<button type="button" class="bulk-remove">Remove</button>' +
+      '</div>';
+
+    var bodyHtml = "";
+    if (mode === "search") {
+      bodyHtml =
+        '<div class="form-row">' +
+          '<div class="form-group">' +
+            '<label>Artist</label>' +
+            '<input type="text" class="bulk-artist" placeholder="e.g. Kenshi Yonezu" autocomplete="off">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label>Track Title</label>' +
+            '<input type="text" class="bulk-title" placeholder="e.g. KICK BACK" autocomplete="off">' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="btn btn-secondary bulk-search-btn">Search</button>' +
+        '<div class="bulk-selected" hidden></div>' +
+        '<div class="bulk-results" hidden>' +
+          '<h4>Results</h4>' +
+          '<div class="results-list"></div>' +
+        '</div>';
+    } else {
+      bodyHtml =
+        '<div class="form-group">' +
+          '<label>Spotify / Deezer URL</label>' +
+          '<input type="url" class="bulk-link" placeholder="https://open.spotify.com/track/..." autocomplete="off">' +
+        '</div>';
+    }
+
+    bodyHtml +=
+      '<div class="bulk-status" data-bulk-status>Idle</div>' +
+      '<div class="download-bar-section bulk-progress" data-bulk-progress hidden>' +
+        '<div class="progress-info">' +
+          '<span class="progress-stage" data-bulk-stage>Preparing…</span>' +
+          '<span class="progress-percent" data-bulk-percent>0%</span>' +
+        '</div>' +
+        '<div class="progress-bar">' +
+          '<div class="progress-fill" data-bulk-fill></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="download-files" data-bulk-files></div>';
+
+    el.innerHTML = headerHtml + bodyHtml;
+    return el;
+  }
+
+  function setBulkStatus(itemEl, message, variant) {
+    var statusEl = itemEl.querySelector("[data-bulk-status]");
+    if (!statusEl) return;
+    statusEl.textContent = message || "";
+    statusEl.className = "bulk-status" + (variant ? " " + variant : "");
+  }
+
+  if (bulkAddBtn) {
+    bulkAddBtn.addEventListener("click", function () {
+      if (bulkItems.length >= 30) {
+        showToast("Bulk list is limited to 30 items", "error");
+        return;
+      }
+      if (bulkModePicker) {
+        bulkModePicker.hidden = !bulkModePicker.hidden;
+      }
+    });
+  }
+
+  if (bulkModePicker) {
+    bulkModePicker.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-bulk-mode]");
+      if (!btn || !bulkList) return;
+      var mode = btn.getAttribute("data-bulk-mode");
+      if (bulkItems.length >= 30) {
+        showToast("Bulk list is limited to 30 items", "error");
+        return;
+      }
+
+      var itemEl = createBulkItem(mode);
+      bulkList.prepend(itemEl);
+
+      var item = {
+        id: itemEl.getAttribute("data-bulk-id"),
+        mode: mode,
+        element: itemEl,
+        selected: null,
+        link: "",
+      };
+      bulkItems.unshift(item);
+      updateBulkCounter();
+
+      itemEl.querySelector(".bulk-remove").addEventListener("click", function () {
+        bulkItems = bulkItems.filter(function (i) { return i.id !== item.id; });
+        itemEl.remove();
+        updateBulkCounter();
+      });
+
+      if (mode === "search") {
+        var searchBtn = itemEl.querySelector(".bulk-search-btn");
+        var artistInput = itemEl.querySelector(".bulk-artist");
+        var titleInput = itemEl.querySelector(".bulk-title");
+        var resultsBox = itemEl.querySelector(".bulk-results");
+        var resultsList = itemEl.querySelector(".results-list");
+        var selectedBox = itemEl.querySelector(".bulk-selected");
+
+        searchBtn.addEventListener("click", async function () {
+          var artist = artistInput.value.trim();
+          var title = titleInput.value.trim();
+          if (!artist || !title) {
+            itemEl.classList.add("shake");
+            setTimeout(function () { itemEl.classList.remove("shake"); }, 500);
+            return;
+          }
+
+          setBulkStatus(itemEl, "Searching…");
+          if (resultsBox) resultsBox.hidden = true;
+          if (selectedBox) selectedBox.hidden = true;
+          item.selected = null;
+
+          try {
+            var fd = new FormData();
+            fd.append("artist", artist);
+            fd.append("title", title);
+
+            var data = await apiFetch("/api/search", { method: "POST", body: fd });
+            if (!data.results || data.results.length === 0) {
+              setBulkStatus(itemEl, "No results found", "error");
+              return;
+            }
+
+            resultsList.innerHTML = "";
+            data.results.forEach(function (r) {
+              var card = document.createElement("div");
+              card.className = "result-card";
+              card.innerHTML =
+                '<div class="result-index">' + (r.index + 1) + "</div>" +
+                '<div class="result-info">' +
+                  '<div class="result-title">' + escapeHtml(r.title) + "</div>" +
+                  '<div class="result-desc">' + escapeHtml(r.description) + "</div>" +
+                "</div>" +
+                '<button class="result-action" type="button">Select</button>';
+
+              card.querySelector(".result-action").addEventListener("click", function () {
+                item.selected = {
+                  search_key: data.search_key,
+                  choice: r.index,
+                  artist: artist,
+                  title: title,
+                  label: r.title,
+                };
+                if (selectedBox) {
+                  selectedBox.textContent = "Selected: " + r.title;
+                  selectedBox.hidden = false;
+                }
+                setBulkStatus(itemEl, "Ready", "success");
+              });
+
+              resultsList.appendChild(card);
+            });
+
+            if (resultsBox) resultsBox.hidden = false;
+            setBulkStatus(itemEl, "Select a result to queue", "");
+          } catch (err) {
+            setBulkStatus(itemEl, err.message, "error");
+          }
+        });
+      } else {
+        var linkInput = itemEl.querySelector(".bulk-link");
+        linkInput.addEventListener("input", function () {
+          item.link = linkInput.value.trim();
+          if (item.link) {
+            setBulkStatus(itemEl, "Ready", "success");
+          } else {
+            setBulkStatus(itemEl, "Idle");
+          }
+        });
+      }
+
+      if (bulkModePicker) bulkModePicker.hidden = true;
+    });
+  }
+
+  async function runBulkQueue() {
+    if (bulkRunning || bulkItems.length === 0) return;
+
+    for (var i = 0; i < bulkItems.length; i++) {
+      var item = bulkItems[i];
+      if (item.mode === "search" && !item.selected) {
+        setBulkStatus(item.element, "Pick a search result first", "error");
+        showToast("Select results for all search items before starting", "error");
+        return;
+      }
+      if (item.mode === "link" && !item.link) {
+        setBulkStatus(item.element, "Add a link first", "error");
+        showToast("Fill in all link items before starting", "error");
+        return;
+      }
+    }
+
+    bulkRunning = true;
+    setBulkControlsDisabled(true);
+    setBulkRunnerVisible(true);
+    updateBulkCounter();
+
+    var runnerCtrl = createBulkRunnerProgressCtrl();
+    runnerCtrl.reset();
+
+    for (var j = 0; j < bulkItems.length; j++) {
+      var current = bulkItems[j];
+      var itemEl = current.element;
+      var filesContainer = itemEl.querySelector("[data-bulk-files]");
+      filesContainer.innerHTML = "";
+
+      setBulkRunnerLine(bulkRunnerIndex, (j + 1) + " / " + bulkItems.length);
+      setBulkRunnerLine(bulkRunnerFound, "Finding track…");
+      if (current.mode === "search") {
+        setBulkRunnerLine(bulkRunnerSelected, current.selected ? current.selected.label : "—");
+      } else {
+        setBulkRunnerLine(bulkRunnerSelected, "Waiting for track info");
+      }
+      runnerCtrl.reset();
+
+      setBulkStatus(itemEl, "Starting…");
+      var itemCtrl = createBulkProgressCtrl(itemEl);
+      var ctrl = {
+        setPhase: function (status) {
+          itemCtrl.setPhase(status);
+          runnerCtrl.setPhase(status);
+        },
+        hide: function () {
+          itemCtrl.hide();
+        },
+      };
+
+      try {
+        var fd = new FormData();
+        var endpoint = "";
+        if (current.mode === "search") {
+          fd.append("search_key", current.selected.search_key);
+          fd.append("choice", current.selected.choice);
+          fd.append("artist", current.selected.artist);
+          fd.append("title", current.selected.title);
+          endpoint = "/api/downloads/choose";
+        } else {
+          fd.append("link", current.link);
+          endpoint = "/api/downloads/link";
+        }
+
+        var resp = await apiFetch(endpoint, { method: "POST", body: fd });
+
+        await pollTaskProgress(resp.task_id, ctrl, function (files) {
+          ctrl.hide();
+          showDownloadFilesInto(filesContainer, files);
+          setBulkStatus(itemEl, "Complete", "success");
+          if (files && files.length) {
+            setBulkRunnerLine(bulkRunnerSelected, files[0].filename);
+          }
+          setBulkRunnerLine(bulkRunnerFound, "Track found");
+        }, async function (taskId) {
+          try {
+            var chooseFd = new FormData();
+            chooseFd.append("task_id", taskId);
+            chooseFd.append("lyrics_choice", "original");
+            await apiFetch("/api/downloads/choose-lyrics", { method: "POST", body: chooseFd });
+            var result = await apiFetch("/api/task-files/" + taskId);
+            ctrl.hide();
+            showDownloadFilesInto(filesContainer, result.files);
+            setBulkStatus(itemEl, "Complete (original lyrics)", "success");
+            if (result.files && result.files.length) {
+              setBulkRunnerLine(bulkRunnerSelected, result.files[0].filename);
+            }
+            setBulkRunnerLine(bulkRunnerFound, "Track found");
+          } catch (err) {
+            ctrl.hide();
+            setBulkStatus(itemEl, err.message, "error");
+            setBulkRunnerLine(bulkRunnerFound, "Not found");
+          }
+        }, function (errMsg) {
+          ctrl.hide();
+          var msg = errMsg || "Download failed";
+          if (current.mode === "link") {
+            if (msg.toLowerCase().indexOf("no audio") !== -1 || msg.toLowerCase().indexOf("timed out") !== -1) {
+              msg = "No track found for this link";
+            }
+          }
+          setBulkStatus(itemEl, msg, "error");
+          setBulkRunnerLine(bulkRunnerFound, "Not found");
+        });
+      } catch (err) {
+        ctrl.hide();
+        setBulkStatus(itemEl, err.message, "error");
+        setBulkRunnerLine(bulkRunnerFound, "Not found");
+      }
+    }
+
+    bulkRunning = false;
+    setBulkControlsDisabled(false);
+    setBulkRunnerVisible(false);
+    updateBulkCounter();
+  }
+
+  if (bulkStartBtn) {
+    bulkStartBtn.addEventListener("click", function () {
+      runBulkQueue();
     });
   }
 

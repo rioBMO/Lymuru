@@ -817,6 +817,215 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+/* ─── Link Status Message ───────────────────────────────────────── */
+.link-status {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.link-status.error {
+  border-color: var(--error);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.link-status.success {
+  border-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+/* ─── Download Via Link Spacing ─────────────────────────────────── */
+#panel-link .search-form .btn {
+  margin-top: 12px;
+}
+
+/* ─── Bulk Download ─────────────────────────────────────────────── */
+.bulk-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bulk-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bulk-counter {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: var(--surface);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+}
+
+.bulk-mode-picker {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bulk-mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--primary-dark);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+}
+
+.bulk-mode-option:hover {
+  background: var(--surface-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.bulk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.bulk-item {
+  position: relative;
+}
+
+.bulk-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.bulk-item-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.bulk-remove {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.bulk-remove:hover {
+  color: var(--error);
+}
+
+.bulk-results {
+  margin-top: 12px;
+}
+
+.bulk-results h4 {
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.bulk-selected {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.bulk-status {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--ink-muted);
+}
+
+.bulk-status.error {
+  color: var(--error);
+}
+
+.bulk-status.success {
+  color: var(--success);
+}
+
+.bulk-progress {
+  margin-top: 12px;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-note {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.bulk-setup {
+  display: block;
+}
+
+.bulk-runner {
+  display: block;
+}
+
+.bulk-runner-card h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--primary-dark);
+}
+
+.bulk-runner-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.bulk-runner-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.bulk-runner-line strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.bulk-runner-progress {
+  max-width: 520px;
+}
+
 /* ─── Lyrics Choice Card ────────────────────────────────────────── */
 .lyrics-choice {
   text-align: center;

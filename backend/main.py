@@ -456,7 +456,7 @@ async def download_link(link: str = Form(...)):
         try:
             client = await get_client()
             _update(tid, "Sending link to bot…", "preparing")
-            message = await deezload.send_link_to_bot(client, link)
+            message = await deezload.send_link_to_bot(client, link, timeout_seconds=15)
             if not message:
                 _fail(tid, "No audio reply from bot")
                 return

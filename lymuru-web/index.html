@@ -46,6 +46,10 @@
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
           <span>Download via Link</span>
         </button>
+        <button class="nav-item" data-tab="bulk" role="tab" aria-selected="false" id="nav-bulk">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+          <span>Bulk Download</span>
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -78,6 +82,9 @@
       </button>
       <button class="mobile-tab" data-tab="link" aria-label="Link">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+      </button>
+      <button class="mobile-tab" data-tab="bulk" aria-label="Bulk">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
       </button>
     </nav>
 
@@ -375,6 +382,8 @@
           </button>
         </form>
 
+        <div class="link-status" id="link-status" hidden></div>
+
         <div class="card task-progress" id="progress-link" hidden>
           <img class="loading-mascot" data-task-mascot src="assets/image/1.png" alt="Lymuru working">
           <div class="loading-dots"><span></span><span></span><span></span></div>
@@ -417,6 +426,75 @@
           <img src="assets/image/lymuru-found.png" alt="Success!" class="result-mascot">
           <h3>Download Complete!</h3>
           <div class="download-files" id="download-files-link"></div>
+        </div>
+      </section>
+
+      <!-- ─── Tab 7: Bulk Download ─── -->
+      <section class="tab-panel" data-panel="bulk" id="panel-bulk">
+        <div class="panel-header">
+          <h2>Bulk Download</h2>
+          <p class="panel-desc">Queue up to 30 tracks. Add items by searching or pasting links, then run them in sequence.</p>
+        </div>
+
+        <div class="bulk-setup" id="bulk-setup">
+          <div class="card bulk-controls">
+            <div class="bulk-controls-row">
+              <button type="button" class="btn btn-secondary" id="bulk-add">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                Add
+              </button>
+              <div class="bulk-counter" id="bulk-counter">0 / 30</div>
+            </div>
+            <div class="bulk-mode-picker" id="bulk-mode-picker" hidden>
+              <button type="button" class="bulk-mode-option" data-bulk-mode="search">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                Search
+              </button>
+              <button type="button" class="bulk-mode-option" data-bulk-mode="link">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                Link
+              </button>
+            </div>
+          </div>
+          <div class="bulk-actions">
+            <button type="button" class="btn btn-primary" id="bulk-start" disabled>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Start Bulk Download
+            </button>
+            <p class="bulk-note">Downloads run one by one in the order listed.</p>
+          </div>
+
+          <div class="bulk-list" id="bulk-list"></div>
+        </div>
+
+        <div class="bulk-runner" id="bulk-runner" hidden>
+          <div class="card bulk-runner-card">
+            <h3>Bulk Download Status</h3>
+            <div class="bulk-runner-meta">
+              <div class="bulk-runner-line">
+                <span>Now Processing</span>
+                <strong id="bulk-runner-index">0 / 0</strong>
+              </div>
+              <div class="bulk-runner-line">
+                <span>Track Found</span>
+                <strong id="bulk-runner-found">Waiting…</strong>
+              </div>
+              <div class="bulk-runner-line">
+                <span>Track Selected</span>
+                <strong id="bulk-runner-selected">—</strong>
+              </div>
+            </div>
+
+            <div class="download-bar-section bulk-runner-progress" data-bulk-runner-progress>
+              <div class="progress-info">
+                <span class="progress-stage" data-bulk-runner-stage>Preparing…</span>
+                <span class="progress-percent" data-bulk-runner-percent>0%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" data-bulk-runner-fill></div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 

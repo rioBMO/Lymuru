@@ -486,7 +486,9 @@ def extract_metadata(file_path: Path) -> tuple[str, str]:
 
 
 async def send_link_to_bot(
-    client: TelegramClient, link: str,
+    client: TelegramClient,
+    link: str,
+    timeout_seconds: int = RESULT_TIMEOUT,
 ) -> Optional[object]:
     """Send a Spotify/Deezer link directly to the DeezLoad bot and wait for an audio reply.
 
@@ -506,7 +508,8 @@ async def send_link_to_bot(
     sent_id = sent.id
 
     print("[WAIT] Waiting for audio reply from bot...")
-    for _ in range(RESULT_TIMEOUT // 2):
+    poll_count = max(1, int(timeout_seconds // 2))
+    for _ in range(poll_count):
         await asyncio.sleep(2)
         messages = await client.get_messages(bot, limit=5, min_id=sent_id)
         for msg in messages:
