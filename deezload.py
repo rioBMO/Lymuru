@@ -26,6 +26,7 @@ load_dotenv()
 API_ID: int = int(os.getenv("TELEGRAM_API_ID", "0"))
 API_HASH: str = os.getenv("TELEGRAM_API_HASH", "")
 PHONE: str = os.getenv("TELEGRAM_PHONE", "")
+API_TOKEN: str = os.getenv("API_TOKEN", "")
 SESSION_NAME: str = "deezload_session"
 BOT_USERNAME: str = "deezload2bot"
 DOWNLOAD_DIR: Path = Path("downloads")
@@ -532,6 +533,15 @@ async def main() -> None:
     print("  DeezLoad — Telegram Music Downloader + Lyrics")
     print("=" * 50)
     print()
+
+    if API_TOKEN:
+        token = input("API Token: ").strip()
+        if token != API_TOKEN:
+            print("[ERROR] Invalid API token. Exiting.")
+            sys.exit(1)
+        print("[OK] Token accepted")
+        print()
+
     print("  [1] Search & download from DeezLoad bot")
     print("  [2] Use existing local FLAC file")
     print("  [3] Embed existing LRC into FLAC file")

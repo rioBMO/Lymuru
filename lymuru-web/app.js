@@ -6,6 +6,37 @@
   // API calls are relative (same origin or proxied).
   var API_BASE = "";
 
+  // ── Auth helpers ──────────────────────────────────────────────────
+  var AUTH_STORAGE_KEY = "lymuru_api_token";
+
+  function getAuthToken() {
+    try {
+      return localStorage.getItem(AUTH_STORAGE_KEY) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function setAuthToken(token) {
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEY, token);
+    } catch (_) {}
+  }
+
+  function clearAuthToken() {
+    try {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    } catch (_) {}
+  }
+
+  function getAuthHeaders() {
+    var token = getAuthToken();
+    if (token) {
+      return { "Authorization": "Bearer " + token };
+    }
+    return {};
+  }
+
   // ── Loading animation frames (1.png – 8.png looping) ─────────────
   var FRAME_PATHS = [1, 2, 3, 4, 5, 6, 7, 8].map(function (n) {
     return "assets/image/" + n + ".png";
@@ -84,7 +115,14 @@
 
   // ── API fetch helper ──────────────────────────────────────────────
   async function apiFetch(path, opts) {
-    var resp = await fetch(API_BASE + path, opts || {});
+    var options = opts || {};
+    options.headers = Object.assign({}, options.headers || {}, getAuthHeaders());
+    var resp = await fetch(API_BASE + path, options);
+    if (resp.status === 401) {
+      clearAuthToken();
+      showLoginOverlay();
+      throw new Error("Authentication required — enter your API token");
+    }
     if (!resp.ok) {
       var errBody;
       try { errBody = await resp.json(); } catch (_) { errBody = {}; }
@@ -128,7 +166,12 @@
   // ── Telegram status ───────────────────────────────────────────────
   async function loadTelegramStatus() {
     try {
-      var resp = await fetch(API_BASE + "/api/telegram/status");
+      var resp = await fetch(API_BASE + "/api/telegram/status", { headers: getAuthHeaders() });
+      if (resp.status === 401) {
+        clearAuthToken();
+        updateTelegramUI({ authorized: false, message: "Auth required" });
+        return;
+      }
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       var status = await resp.json();
       updateTelegramUI(status);
@@ -532,9 +575,15 @@
         fd.append("flac_file", flacInput.files[0]);
         fd.append("lrc_file", lrcInput.files[0]);
 
-        var resp = await fetch(API_BASE + "/api/lyrics/embed", { method: "POST", body: fd });
+        var resp = await fetch(API_BASE + "/api/lyrics/embed", { method: "POST", body: fd, headers: getAuthHeaders() });
         hideLoading("loading-embed");
 
+        if (resp.status === 401) {
+          clearAuthToken();
+          showLoginOverlay();
+          showToast("Authentication required — enter your API token", "error");
+          return;
+        }
         if (!resp.ok) {
           var err = await resp.json();
           showToast(err.detail || "Embed failed", "error");
@@ -1212,6 +1261,78 @@
       });
     }
   });
+
+  // ── Auth ─────────────────────────────────────────────────────────
+  var loginOverlay = document.getElementById("login-overlay");
+  var loginForm = document.getElementById("login-form");
+  var loginToken = document.getElementById("login-token");
+  var loginError = document.getElementById("login-error");
+
+  function showLoginOverlay() {
+    if (loginOverlay) loginOverlay.hidden = false;
+    if (loginToken) loginToken.value = "";
+    if (loginError) loginError.hidden = true;
+  }
+
+  function hideLoginOverlay() {
+    if (loginOverlay) loginOverlay.hidden = true;
+  }
+
+  async function checkAuth() {
+    var token = getAuthToken();
+    if (!token) {
+      showLoginOverlay();
+      return;
+    }
+    try {
+      var resp = await fetch(API_BASE + "/api/auth/check", { headers: getAuthHeaders() });
+      if (resp.ok) {
+        hideLoginOverlay();
+      } else {
+        clearAuthToken();
+        showLoginOverlay();
+      }
+    } catch (_) {
+      hideLoginOverlay();
+    }
+  }
+
+  if (loginForm) {
+    loginForm.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var token = (loginToken.value || "").trim();
+      if (!token) return;
+
+      loginError.hidden = true;
+      var submitBtn = loginForm.querySelector("button");
+
+      try {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Verifying…";
+
+        var headers = { "Authorization": "Bearer " + token };
+        var resp = await fetch(API_BASE + "/api/auth/check", { headers: headers });
+
+        if (resp.ok) {
+          setAuthToken(token);
+          hideLoginOverlay();
+          showToast("Authenticated", "success");
+          loadTelegramStatus();
+        } else {
+          loginError.textContent = "Invalid token — try again";
+          loginError.hidden = false;
+        }
+      } catch (_) {
+        loginError.textContent = "Could not reach server";
+        loginError.hidden = false;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Authenticate";
+      }
+    });
+  }
+
+  checkAuth();
 
   // ── Utility ───────────────────────────────────────────────────────
   function escapeHtml(str) {

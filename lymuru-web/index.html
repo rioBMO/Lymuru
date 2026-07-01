@@ -381,9 +381,7 @@
             Download
           </button>
         </form>
-
         <div class="link-status" id="link-status" hidden></div>
-
         <div class="card task-progress" id="progress-link" hidden>
           <img class="loading-mascot" data-task-mascot src="assets/image/1.png" alt="Lymuru working">
           <div class="loading-dots"><span></span><span></span><span></span></div>
@@ -505,6 +503,21 @@
       </div>
 
     </main>
+
+    <!-- ─── Login overlay ──────────────────────────────────────── -->
+    <div class="login-overlay" id="login-overlay">
+      <div class="login-card">
+        <img src="assets/image/lymuru-logo.png" alt="Lymuru Logo" class="login-logo">
+        <h2>Lymuru</h2>
+        <p>Enter your API token to continue</p>
+        <form class="login-form" id="login-form">
+          <input type="password" id="login-token" placeholder="API Token" autocomplete="off" required>
+          <p class="login-error" id="login-error" hidden></p>
+          <button type="submit">Authenticate</button>
+        </form>
+      </div>
+    </div>
+
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>

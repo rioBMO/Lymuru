@@ -16,9 +16,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import sys
@@ -48,8 +48,18 @@ app.add_middleware(
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "uploads"))
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "downloads"))
 SESSION_DIR = Path(os.getenv("SESSION_DIR", "sessions"))
+API_TOKEN = os.getenv("API_TOKEN", "")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# ── Auth middleware ───────────────────────────────────────────────────
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    if API_TOKEN and request.url.path.startswith("/api/") and request.method != "OPTIONS" and request.url.path not in ("/api/health", "/api/auth/check"):
+        token = (request.headers.get("Authorization", "") or "").removeprefix("Bearer ")
+        if token != API_TOKEN:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing API token"})
+    return await call_next(request)
 
 # ── Task progress store (in-memory) ─────────────────────────────────
 _tasks: dict[str, dict[str, Any]] = {}
@@ -154,6 +164,15 @@ async def get_client():
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/auth/check")
+async def auth_check(authorization: Optional[str] = Header(None)):
+    if API_TOKEN:
+        token = (authorization or "").removeprefix("Bearer ")
+        if token != API_TOKEN:
+            raise HTTPException(status_code=401, detail="Invalid or missing API token")
+    return {"valid": True}
 
 
 @app.get("/api/telegram/status")
