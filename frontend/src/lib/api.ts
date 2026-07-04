@@ -1,27 +1,11 @@
 /**
  * Wails binding wrapper.
- *
- * This file replaces the previous `fetch()`-based HTTP API wrapper.
- * All backend calls go through Wails-generated TypeScript bindings
- * that are auto-generated into `frontend/wailsjs/go/main/App` by
- * `wails dev` / `wails build`.
- *
- * Until the Wails CLI is run and bindings are generated, the
- * `wailsjs` modules will not exist. To run the frontend standalone
- * (e.g. via `bun run dev` without Wails), stub the imports below
- * or run `wails generate module` to materialize the bindings.
  */
 
 import {
-  Search,
-  Download,
-  DownloadLink,
-  ChooseLyrics,
   GetHistory,
   DeleteHistoryItem,
   ClearHistory,
-  GetActiveTasks,
-  CancelTask,
   GetSettings,
   SaveSettings,
   GetVersion,
@@ -34,19 +18,39 @@ import {
   EmbedLrc,
   RomanizeLrc,
   ExtractLrc,
+  
+  GetSpotifyMetadata, 
+  DownloadTrack,
+  SearchSpotify,
+  SearchSpotifyByType,
+  GetRecentFetches,
+  SaveRecentFetches
 } from "../../wailsjs/go/main/App";
+import { main } from "../../wailsjs/go/models";
 
-// Re-export so components can import from `@/lib/api`.
+export async function fetchSpotifyMetadata(url: string, batch: boolean = true, delay: number = 1.0, timeout: number = 300.0) {
+    const req = new main.SpotifyMetadataRequest({
+        url,
+        batch,
+        delay,
+        timeout,
+    });
+    const jsonString = await GetSpotifyMetadata(req);
+    return JSON.parse(jsonString);
+}
+
+export async function downloadTrack(request: any) {
+    const req = new main.DownloadRequest(request);
+    if (request.use_single_genre !== undefined) {
+        (req as any).use_single_genre = request.use_single_genre;
+    }
+    return await DownloadTrack(req);
+}
+
 export {
-  Search,
-  Download,
-  DownloadLink,
-  ChooseLyrics,
   GetHistory,
   DeleteHistoryItem,
   ClearHistory,
-  GetActiveTasks,
-  CancelTask,
   GetSettings,
   SaveSettings,
   GetVersion,
@@ -59,28 +63,14 @@ export {
   EmbedLrc,
   RomanizeLrc,
   ExtractLrc,
+  
+  SearchSpotify,
+  SearchSpotifyByType,
+  GetRecentFetches,
+  SaveRecentFetches
 };
 
-// ---------------------------------------------------------------------------
-// Type aliases matching the Go-side bindings.
-// (Kept in sync with the App struct in app.go.)
-// ---------------------------------------------------------------------------
-
-export interface SearchResult {
-  index: number;
-  title: string;
-  description: string;
-}
-
-export interface SearchResponse {
-  results: SearchResult[];
-  search_key: string;
-}
-
-export interface DownloadResponse {
-  task_id: string;
-}
-
+// Types for History
 export interface HistoryEntry {
   id: number;
   task_id: string;
@@ -91,24 +81,10 @@ export interface HistoryEntry {
   error?: string;
   created_at: string;
 }
-
 export interface HistoryResponse {
   entries: HistoryEntry[];
   total: number;
 }
-
-export interface ActiveTask {
-  task_id: string;
-  task_type: string;
-  query: string;
-  stage: string;
-  phase: string;
-  download_percent: number;
-  files?: string[];
-  error?: string;
-  created_at: string;
-}
-
 export interface Settings {
   theme_mode: "light" | "dark";
   downloads_folder: string;
@@ -118,48 +94,8 @@ export interface Settings {
   audio_source: string;
 }
 
-
-export interface RomanizeResult {
-  romanized: string | null;
-  download_url: string | null;
-  message: string;
-}
-
-export interface ExtractResult {
-  lyrics: string;
-  is_synced: boolean;
-  output_url: string;
-}
-
-// ---------------------------------------------------------------------------
-// Wails event names — keep in sync with backend/progress.go.
-// ---------------------------------------------------------------------------
-
 export const Events = {
   TaskProgress: "task:progress",
   TaskComplete: "task:complete",
   TaskError:    "task:error",
 } as const;
-
-export interface TaskProgressPayload {
-  task_id: string;
-  stage: string;
-  phase: string;
-  download_percent: number;
-  download_received: number;
-  download_total: number;
-  query: string;
-  task_type: string;
-}
-
-export interface TaskCompletePayload {
-  task_id: string;
-  files: string[];
-}
-
-export interface TaskErrorPayload {
-  task_id: string;
-  message: string;
-}
-
-

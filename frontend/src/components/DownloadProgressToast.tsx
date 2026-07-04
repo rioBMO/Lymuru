@@ -1,66 +1,31 @@
-import { ListMusic } from "lucide-react";
+import { useDownloadProgress } from "@/hooks/useDownloadProgress";
+import { useDownloadQueueData } from "@/hooks/useDownloadQueueData";
+import { Download, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Spinner } from "@/components/ui/spinner";
-import { cn } from "@/lib/utils";
-
-interface Props {
-  activeCount: number;
-  currentStage?: string;
-  currentPercent?: number;
-  onClick: () => void;
+interface DownloadProgressToastProps {
+    onClick: () => void;
 }
-
-export function DownloadProgressToast({
-  activeCount,
-  currentStage,
-  currentPercent,
-  onClick,
-}: Props) {
-  if (activeCount === 0) return null;
-
-  const pct = Math.max(0, Math.min(100, Math.round(currentPercent ?? 0)));
-  const isPreparing = pct === 0;
-
-  return (
-    <div className="fixed bottom-6 right-6 z-40 w-72">
-      <Card className="shadow-lg cursor-pointer hover:shadow-xl transition-shadow" onClick={onClick}>
-        <CardContent className="p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              {isPreparing ? <Spinner size="sm" className="text-primary-foreground" /> : <ListMusic className="h-3.5 w-3.5" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-foreground truncate">
-                {currentStage ?? "Working…"}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                {activeCount} active task{activeCount === 1 ? "" : "s"}
-              </p>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClick();
-              }}
-              className="h-7 px-2 text-[10px]"
-            >
-              View
-            </Button>
+export function DownloadProgressToast({ onClick }: DownloadProgressToastProps) {
+    const progress = useDownloadProgress();
+    const queueInfo = useDownloadQueueData();
+    const hasActiveDownloads = queueInfo.queue.some(item => item.status === "queued" || item.status === "downloading");
+    if (!hasActiveDownloads) {
+        return null;
+    }
+    return (<div className="fixed bottom-4 left-[calc(56px+1rem)] z-50 animate-in slide-in-from-bottom-5 data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom-5">
+      <Button variant="outline" className="h-auto cursor-pointer rounded-lg border-border bg-background p-3 text-foreground shadow-lg transition-colors hover:bg-muted dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100 dark:hover:bg-blue-900" onClick={onClick}>
+        <div className="flex items-center gap-3">
+          <Download className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${progress.is_downloading ? 'animate-bounce' : ''}`}/>
+          <div className="flex flex-col min-w-[80px]">
+            <p className="text-sm font-medium font-mono tabular-nums">
+              {progress.mb_downloaded.toFixed(2)} MB
+            </p>
+            {progress.speed_mbps > 0 && (<p className="text-xs font-mono tabular-nums text-muted-foreground dark:text-blue-300">
+                {progress.speed_mbps.toFixed(2)} MB/s
+              </p>)}
           </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full bg-primary transition-all duration-300",
-                isPreparing && "animate-pulse w-1/3",
-              )}
-              style={isPreparing ? undefined : { width: `${pct}%` }}
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+          <ChevronRight className="ml-1 h-4 w-4 text-muted-foreground dark:text-blue-300"/>
+        </div>
+      </Button>
+    </div>);
 }

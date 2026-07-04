@@ -1,62 +1,46 @@
-import { Menu, Moon, Sun } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-
-interface Props {
-  themeMode: "light" | "dark";
-  onToggleTheme: () => void;
-  onOpenMobileMenu?: () => void;
-  version?: string;
+import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
+import { openExternal } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/relative-time";
+interface HeaderProps {
+    version: string;
+    hasUpdate: boolean;
+    releaseDate?: string | null;
 }
-
-export function Header({
-  themeMode,
-  onToggleTheme,
-  onOpenMobileMenu,
-  version,
-}: Props) {
-
-  return (
-    <header className="shrink-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-card/80 px-4 md:px-6 backdrop-blur">
-      {onOpenMobileMenu && (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden"
-          onClick={onOpenMobileMenu}
-          aria-label="Open menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
-      )}
-      <div className="flex items-center gap-2">
-        <img
-          src="/assets/image/lymuru-logo.png"
-          alt=""
-          className="h-7 w-7 object-contain md:hidden"
-        />
-        <h1 className="text-base font-semibold text-foreground">Lymuru</h1>
-        {version && version !== "0.0.0" && (
-          <Badge variant="outline" className="hidden sm:inline-flex text-[10px]">
-            v{version}
-          </Badge>
-        )}
+export function Header({ version, hasUpdate, releaseDate }: HeaderProps) {
+    return (<div className="relative">
+      <div className="text-center space-y-2">
+        <div className="flex items-center justify-center gap-3">
+          <button type="button" className="cursor-pointer rounded-sm border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={() => window.location.reload()} aria-label="Reload SpotiFLAC">
+            <img src="/icon.svg" alt="" className="w-12 h-12"/>
+          </button>
+          <h1 className="text-4xl font-bold">
+            <button type="button" className="cursor-pointer rounded-sm border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={() => window.location.reload()}>
+              SpotiFLAC
+            </button>
+          </h1>
+          <div className="relative">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="default" asChild>
+                  <button type="button" onClick={() => openExternal("https://github.com/spotbye/SpotiFLAC/releases")} className="cursor-pointer hover:opacity-80 transition-opacity">
+                    v{version}
+                  </button>
+                </Badge>
+              </TooltipTrigger>
+              {hasUpdate && releaseDate && (<TooltipContent>
+                  <p>{formatRelativeTime(releaseDate)}</p>
+                </TooltipContent>)}
+            </Tooltip>
+            {hasUpdate && (<span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+              </span>)}
+          </div>
+        </div>
+        <p className="text-muted-foreground">
+          Get Spotify tracks in true FLAC from Tidal, Qobuz & Amazon Music — no account required.
+        </p>
       </div>
-      <div className="ml-auto flex items-center gap-2">
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggleTheme}
-          aria-label="Toggle theme"
-        >
-          {themeMode === "dark" ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
-        </Button>
-      </div>
-    </header>
-  );
+    </div>);
 }
