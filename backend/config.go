@@ -1,0 +1,140 @@
+package backend
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"github.com/lymuru/lymuru/backend/storage"
+)
+
+// Settings holds the persisted app settings.
+type Settings struct {
+	ThemeMode              string `json:"theme_mode"`               // "light" or "dark"
+	DownloadsFolder        string `json:"downloads_folder"`         // absolute path
+	HasCompletedOnboarding bool   `json:"has_completed_onboarding"` // onboarding done
+	PythonPath             string `json:"python_path"`              // path to python executable; auto-detect if empty
+	ExportLrcFile          bool   `json:"export_lrc_file"`          // save .lrc file alongside downloaded audio
+}
+
+// DefaultSettings returns sensible defaults. DownloadsFolder is expanded.
+func DefaultSettings() Settings {
+	home, _ := os.UserHomeDir()
+	dl := filepath.Join(home, "Music", "Lymuru")
+	return Settings{
+		ThemeMode:              "light",
+		DownloadsFolder:        dl,
+		HasCompletedOnboarding: false,
+		ExportLrcFile:          true,
+	}
+}
+
+// Config owns the settings table.
+type Config struct {
+	mu sync.RWMutex
+	db *storage.DB
+}
+
+func NewConfig(db *storage.DB) *Config { return &Config{db: db} }
+
+// Load returns the persisted settings merged with defaults.
+func (c *Config) Load() (Settings, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := DefaultSettings()
+	if c.db == nil {
+		return out, nil
+	}
+	rows, err := c.db.Conn().Query(`SELECT key, value FROM settings`)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return out, err
+		}
+		switch k {
+		case "theme_mode":
+			out.ThemeMode = v
+		case "downloads_folder":
+			out.DownloadsFolder = v
+		case "has_completed_onboarding":
+			out.HasCompletedOnboarding = v == "1" || v == "true"
+		case "python_path":
+			out.PythonPath = v
+		case "export_lrc_file":
+			out.ExportLrcFile = v == "1" || v == "true"
+		}
+	}
+	return out, rows.Err()
+}
+
+// Save persists the settings, replacing existing values.
+func (c *Config) Save(s Settings) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.db == nil {
+		return errors.New("config: nil db")
+	}
+	pairs := map[string]string{
+		"theme_mode":               s.ThemeMode,
+		"downloads_folder":         s.DownloadsFolder,
+		"has_completed_onboarding": boolToOnboard(s.HasCompletedOnboarding),
+		"python_path":              s.PythonPath,
+		"export_lrc_file":          boolToOnboard(s.ExportLrcFile),
+	}
+	tx, err := c.db.Conn().Begin()
+	if err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+	for k, v := range pairs {
+		if _, err := stmt.Exec(k, v); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func boolToOnboard(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// EnsureDownloadsFolder creates the downloads folder if it doesn't exist.
+func EnsureDownloadsFolder(path string) error {
+	if path == "" {
+		return nil
+	}
+	return os.MkdirAll(path, 0o755)
+}
+
+// scanSettings is unused but kept for reference when expanding the schema.
+func scanSettings(rows *sql.Rows) (Settings, error) {
+	var s Settings
+	for rows.Next() {
+		var raw json.RawMessage
+		var k string
+		if err := rows.Scan(&k, &raw); err != nil {
+			return s, err
+		}
+		switch k {
+		case "settings_v1":
+			_ = json.Unmarshal(raw, &s)
+		}
+	}
+	return s, rows.Err()
+}
