@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchSpotifyMetadata } from "@/lib/api";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { logger } from "@/lib/logger";
-import { AddFetchHistory, SearchSpotifyByType } from "../../wailsjs/go/main/App";
+import { SearchSpotifyByType } from "../../wailsjs/go/main/App";
 import { EventsOff, EventsOn } from "../../wailsjs/runtime/runtime";
 import type { SpotifyMetadataResponse } from "@/types/api";
 export function useMetadata() {
@@ -150,18 +150,6 @@ export function useMetadata() {
                 info = `${data.artist_info.total_albums || data.album_list.length} albums`;
                 image = data.artist_info.images;
             }
-            const jsonStr = JSON.stringify(data);
-            await AddFetchHistory({
-                id: crypto.randomUUID(),
-                url: url,
-                type: type,
-                name: name,
-                info: info,
-                image: image,
-                data: jsonStr,
-                is_explicit: ("track" in data && Boolean(data.track.is_explicit)) || ("album_info" in data && Boolean(data.album_info.is_explicit)),
-                timestamp: Math.floor(Date.now() / 1000)
-            });
         }
         catch (err) {
             console.error("Failed to save fetch history:", err);

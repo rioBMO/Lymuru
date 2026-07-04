@@ -36,3 +36,6 @@ Thumbs.db
 
 # Misc
 .cache
+
+*.session
+*.session-journal

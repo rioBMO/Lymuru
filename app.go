@@ -85,6 +85,15 @@ type SidecarTaskResponse struct {
 
 
 
+// --- Dummy Stubs for SpotiFLAC React UI ---
+func (a *App) CheckFFmpegInstalled() bool { return true }
+func (a *App) DownloadFFmpeg() error { return nil }
+func (a *App) GetDefaults() map[string]interface{} { return nil }
+func (a *App) LoadFonts() map[string]interface{} { return nil }
+func (a *App) LoadSettings() map[string]interface{} { return nil }
+func (a *App) SaveFonts(f map[string]interface{}) error { return nil }
+// ------------------------------------------
+
 // GetVersion returns the app version.
 func (a *App) GetVersion() string {
 	return backend.AppVersion()

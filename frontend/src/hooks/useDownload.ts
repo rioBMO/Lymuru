@@ -50,7 +50,7 @@ interface FileExistenceResult {
     artist_name?: string;
 }
 const CheckFilesExistence = (outputDir: string, rootDir: string, tracks: CheckFileExistenceRequest[]): Promise<FileExistenceResult[]> => (window as any)["go"]["main"]["App"]["CheckFilesExistence"](outputDir, rootDir, tracks);
-const SkipDownloadItem = (itemID: string, filePath: string): Promise<void> => (window as any)["go"]["main"]["App"]["SkipDownloadItem"](itemID, filePath);
+// const SkipDownloadItem = (itemID: string, filePath: string): Promise<void> => (window as any)["go"]["main"]["App"]["SkipDownloadItem"](itemID, filePath);
 const CreateM3U8File = (playlistName: string, outputDir: string, filePaths: string[]): Promise<void> => (window as any)["go"]["main"]["App"]["CreateM3U8File"](playlistName, outputDir, filePaths);
 const CreateLogFile = (fileName: string, outputDir: string, logs: string[]): Promise<void> => (window as any)["go"]["main"]["App"]["CreateLogFile"](fileName, outputDir, logs);
 const GetTrackISRC = (spotifyId: string): Promise<string> => (window as any)["go"]["main"]["App"]["GetTrackISRC"](spotifyId);
@@ -916,7 +916,7 @@ export function useDownload() {
             itemIDs.push(itemID);
             if (existingSpotifyIDs.has(trackID)) {
                 const filePath = existingFilePaths.get(trackID) || "";
-                setTimeout(() => SkipDownloadItem(itemID, filePath), 10);
+                // setTimeout(() => SkipDownloadItem(itemID, filePath), 10);
                 setSkippedTracks((prev) => new Set(prev).add(id));
                 setDownloadedTracks((prev) => new Set(prev).add(id));
             }
@@ -1012,8 +1012,8 @@ export function useDownload() {
         setBulkDownloadType(null);
         updateBatchProgress(0, 0);
         shouldStopDownloadRef.current = false;
-        const { CancelAllQueuedItems } = await import("../../wailsjs/go/main/App");
-        await CancelAllQueuedItems();
+        // const { CancelAllQueuedItems } = await import("../../wailsjs/go/main/App");
+        // await CancelAllQueuedItems();
         if (settings.createM3u8File && folderName) {
             const paths = selectedTrackObjects.map((t) => finalFilePaths.get(t.spotify_id || "") || "").filter((p) => p !== "");
             if (paths.length > 0) {
@@ -1160,7 +1160,7 @@ export function useDownload() {
             const trackID = track.spotify_id || "";
             if (existingSpotifyIDs.has(trackID)) {
                 const filePath = existingFilePaths.get(trackID) || "";
-                setTimeout(() => SkipDownloadItem(itemID, filePath), 10);
+                // setTimeout(() => SkipDownloadItem(itemID, filePath), 10);
                 setSkippedTracks((prev: Set<string>) => new Set(prev).add(trackID));
                 setDownloadedTracks((prev: Set<string>) => new Set(prev).add(trackID));
             }
@@ -1253,8 +1253,8 @@ export function useDownload() {
         setBulkDownloadType(null);
         updateBatchProgress(0, 0);
         shouldStopDownloadRef.current = false;
-        const { CancelAllQueuedItems: CancelQueued } = await import("../../wailsjs/go/main/App");
-        await CancelQueued();
+        // const { CancelAllQueuedItems: CancelQueued } = await import("../../wailsjs/go/main/App");
+        // await CancelQueued();
         if (settings.createM3u8File && folderName) {
             try {
                 logger.info(`creating m3u8 playlist: ${folderName}`);

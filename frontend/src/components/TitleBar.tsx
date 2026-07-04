@@ -1,4 +1,4 @@
-import { X, Minus, Maximize, SlidersHorizontal, Globe, Eye, EyeOff } from "lucide-react";
+import { Maximize, Minus, X, SlidersHorizontal, Globe, Eye, EyeOff } from "lucide-react";
 import { WindowMinimise, WindowToggleMaximise, Quit } from "../../wailsjs/runtime/runtime";
 import { Menubar, MenubarContent, MenubarMenu, MenubarItem, MenubarTrigger, MenubarLabel, MenubarSeparator } from "@/components/ui/menubar";
 import { Slider } from "@/components/ui/slider";

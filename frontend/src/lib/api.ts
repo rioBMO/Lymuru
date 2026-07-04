@@ -19,9 +19,8 @@ import {
   RomanizeLrc,
   ExtractLrc,
   
-  GetSpotifyMetadata, 
-  DownloadTrack,
-  SearchSpotify,
+  GetActiveTasks, CancelTask, SearchSpotify,
+  GetSpotifyMetadata, DownloadTrack,
   SearchSpotifyByType,
   GetRecentFetches,
   SaveRecentFetches
@@ -64,7 +63,7 @@ export {
   RomanizeLrc,
   ExtractLrc,
   
-  SearchSpotify,
+  GetActiveTasks, CancelTask, SearchSpotify,
   SearchSpotifyByType,
   GetRecentFetches,
   SaveRecentFetches
@@ -99,3 +98,44 @@ export const Events = {
   TaskComplete: "task:complete",
   TaskError:    "task:error",
 } as const;
+
+export interface ActiveTask {
+  task_id: string;
+  task_type: string;
+  query: string;
+  stage: string;
+  phase: string;
+  download_percent: number;
+  files?: string[];
+  error?: string;
+  created_at: string;
+}
+
+export interface TaskProgressPayload {
+  task_id: string;
+  stage: string;
+  phase: string;
+  download_percent: number;
+  download_received: number;
+  download_total: number;
+  query: string;
+  task_type: string;
+}
+
+export interface TaskCompletePayload {
+  task_id: string;
+  files: string[];
+}
+
+export interface TaskErrorPayload {
+  task_id: string;
+  message: string;
+}
+
+export async function fetchCurrentIPInfo() { return null; }
+export async function downloadCover() { return null; }
+export async function downloadLyrics() { return null; }
+
+export async function downloadHeader() { return null; }
+export async function downloadGalleryImage() { return null; }
+export async function downloadAvatar() { return null; }

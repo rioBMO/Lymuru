@@ -1,58 +1,36 @@
-# Lymuru - DeezLoad Web Dashboard
+# Lymuru
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
+![Go 1.21+](https://img.shields.io/badge/Go-1.21+-blue.svg)
 
-Lymuru is a beautiful web UI and API layer on top of the DeezLoad Telegram bot. It lets you search and download FLAC tracks, embed synced lyrics, and romanize CJK lyrics directly from the browser. It abstracts away the complexity of interacting with the Telegram bot directly.
+Lymuru is a beautiful desktop application for searching and downloading high-quality FLAC/MP3 audio. It also features integrated lyrics management, letting you fetch synced lyrics, embed LRC into FLAC files, extract embedded lyrics, and romanize CJK lyrics. 
+
+Lymuru runs purely natively on your machine, leveraging Go, Wails v2, and React for a blazingly fast and premium user experience.
 
 > 🛠 **Are you a Developer?** Please check our [README-dev.md](README-dev.md) for architecture details, API endpoints, and contribution guidelines.
 
 ## Features ✨
 
-- **Search & Download**: Find and download high-quality FLAC audio via `@deezload2bot` inline queries.
-- **Link Support**: Direct downloads from Spotify or Deezer links.
+- **Search & Download**: Find and download high-quality FLAC/MP3/M4A audio natively.
+- **Auto-Download FFmpeg**: No manual dependencies needed. Lymuru manages FFmpeg transparently.
 - **Lyrics Integration**: 
-  - Add synced lyrics to existing FLAC files.
-  - Embed LRC into FLAC, extract embedded lyrics, and romanize LRC.
+  - Fetch synced lyrics from LRCLIB and embed them into existing FLAC files.
+  - Embed local LRC into FLAC, extract embedded lyrics, and romanize LRC.
 - **Romanization**: Optional romanized lyrics for CJK languages (Romaji, Pinyin, Korean romanization).
-- **Bulk Mode**: Download multiple tracks efficiently.
-- **Real-time Progress**: Monitor your tasks with live download percentages.
+- **History & Queue**: A fully featured queue and download history manager, backed by SQLite.
 
 ## Requirements 📋
 
-- Python 3.10+
-- Telegram API credentials (API ID and Hash) from https://my.telegram.org/apps
-- A valid Telegram Account
+- **Windows 10/11** (macOS and Linux support incoming)
+- No external dependencies needed! Just run the executable.
 
-## Quick Start (Simple Windows Console) 🚀
+## Quick Start 🚀
 
-If you are on Windows, simply double-click the run script:
-```cmd
-run.bat
-```
-*(Make sure you have filled in your credentials in `.env` if prompted)*
+1. Download the latest release from the Releases page.
+2. Run `Lymuru.exe`.
+3. The app will automatically configure FFmpeg on first launch.
 
-## Quick Start (Docker) 🐳
-
-The easiest way to run the application in an isolated environment.
-
-1. **Copy the environment file:**
-   ```bash
-   copy .env.example .env
-   ```
-
-2. **Configure your credentials:**
-   Fill in your Telegram credentials (`TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, etc.) in the `.env` file.
-
-3. **Build and start the container:**
-   ```bash
-   docker compose up --build
-   ```
-
-4. **Open your browser:**
-   Navigate to http://localhost:3000
-
-*Note: You may need to run `python deezload.py` once on your host machine to generate the initial `deezload_session.session` file before running Docker.*
+*Note: For developers, run `wails dev` to start the live development server, or `wails build` to compile the native executable.*
 
 ## License 📄
 
