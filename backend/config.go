@@ -16,7 +16,6 @@ type Settings struct {
 	ThemeMode              string `json:"theme_mode"`               // "light" or "dark"
 	DownloadsFolder        string `json:"downloads_folder"`         // absolute path
 	HasCompletedOnboarding bool   `json:"has_completed_onboarding"` // onboarding done
-	PythonPath             string `json:"python_path"`              // path to python executable; auto-detect if empty
 	ExportLrcFile          bool   `json:"export_lrc_file"`          // save .lrc file alongside downloaded audio
 	FFmpegPath             string `json:"ffmpeg_path"`              // path to ffmpeg executable; auto-detect if empty
 	AudioSource            string `json:"audio_source"`             // "auto" (default), "tidal", "amazon", "qobuz", or "sidecar"
@@ -83,8 +82,6 @@ func (c *Config) Load() (Settings, error) {
 			out.DownloadsFolder = v
 		case "has_completed_onboarding":
 			out.HasCompletedOnboarding = v == "1" || v == "true"
-		case "python_path":
-			out.PythonPath = v
 		case "export_lrc_file":
 			out.ExportLrcFile = v == "1" || v == "true"
 		case "ffmpeg_path":
@@ -125,7 +122,6 @@ func (c *Config) Save(s Settings) error {
 		"theme_mode":               s.ThemeMode,
 		"downloads_folder":         s.DownloadsFolder,
 		"has_completed_onboarding": boolToOnboard(s.HasCompletedOnboarding),
-		"python_path":              s.PythonPath,
 		"export_lrc_file":          boolToOnboard(s.ExportLrcFile),
 		"ffmpeg_path":              s.FFmpegPath,
 		"audio_source":             s.AudioSource,

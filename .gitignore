@@ -2,8 +2,6 @@
 .env
 .env.docker
 
-# Telethon session (kept in data/, but ignore in case it lives at root)
-*.session
 
 # Data (SQLite DB) and runtime artifacts
 data/*.db
@@ -25,18 +23,6 @@ bin/
 *.app
 *.dmg
 
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual environment (legacy — was for the old FastAPI backend)
-venv/
-.venv/
-env/
 
 # IDE
 .vscode/

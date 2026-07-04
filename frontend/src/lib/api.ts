@@ -25,14 +25,7 @@ import {
   GetSettings,
   SaveSettings,
   GetVersion,
-  GetSidecarStatus,
-  GetSidecarInfo,
-  GetSidecarLogs,
-  GetAuthState,
-  SubmitAuthCode,
-  SignOut,
-  RestartSidecar,
-  TestSidecar,
+
   PickFile,
   PickFolder,
   OpenFolder,
@@ -57,14 +50,7 @@ export {
   GetSettings,
   SaveSettings,
   GetVersion,
-  GetSidecarStatus,
-  GetSidecarInfo,
-  GetSidecarLogs,
-  GetAuthState,
-  SubmitAuthCode,
-  SignOut,
-  RestartSidecar,
-  TestSidecar,
+
   PickFile,
   PickFolder,
   OpenFolder,
@@ -127,17 +113,11 @@ export interface Settings {
   theme_mode: "light" | "dark";
   downloads_folder: string;
   has_completed_onboarding: boolean;
-  python_path: string;
   export_lrc_file: boolean;
   ffmpeg_path: string;
   audio_source: string;
 }
 
-export interface AuthState {
-  state: "authenticated" | "auth_required" | "error" | "unknown";
-  phone?: string;
-  sidecar_ready: boolean;
-}
 
 export interface RomanizeResult {
   romanized: string | null;
@@ -159,7 +139,6 @@ export const Events = {
   TaskProgress: "task:progress",
   TaskComplete: "task:complete",
   TaskError:    "task:error",
-  Sidecar:      "sidecar:status",
 } as const;
 
 export interface TaskProgressPayload {
@@ -183,21 +162,4 @@ export interface TaskErrorPayload {
   message: string;
 }
 
-export interface SidecarStatusPayload {
-  status: string;
-  message: string;
-}
 
-export interface SidecarInfo {
-  status: string;
-  message: string;
-  logs: string[];
-  script_dir: string;
-  python_path: string;
-}
-
-export interface TestSidecarResponse {
-  ok: boolean;
-  status: string;
-  message: string;
-}

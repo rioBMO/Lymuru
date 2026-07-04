@@ -8,9 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/lymuru/lymuru/backend"
 	"github.com/lymuru/lymuru/backend/storage"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -25,18 +23,7 @@ type App struct {
 	tasks   *backend.TaskManager
 	history *backend.History
 	config  *backend.Config
-	sidecar *backend.Sidecar
 	started bool
-
-	// Durable copy of the most recent sidecar:status event so the
-	// frontend can retrieve it via GetSidecarInfo even if it missed
-	// the real-time event (race between EventsOn subscription and the
-	// first EmitStatus).
-	lastSidecarStatus  string
-	lastSidecarMessage string
-	lastSidecarLogs    []string
-	lastPythonPath     string
-	lastScriptPath     string
 }
 
 // NewApp creates a new App. Call SetStorage before startup.
@@ -62,249 +49,16 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.started = true
 	a.mu.Unlock()
-
-	go a.bootSidecar(ctx)
-}
-
-// bootSidecar launches (or re-launches) the Python sidecar and wires up
-// its event handlers. Always emits a status event so the UI is updated
-// even on failure.
-func (a *App) bootSidecar(ctx context.Context) {
-	logSidecar("bootSidecar: entered")
-	defer func() {
-		if r := recover(); r != nil {
-			logSidecar(fmt.Sprintf("bootSidecar: PANIC: %v", r))
-		}
-		logSidecar("bootSidecar: leaving")
-	}()
-
-	// Stop any existing sidecar first (safe no-op if none running).
-	a.mu.Lock()
-	old := a.sidecar
-	a.sidecar = nil
-	a.mu.Unlock()
-	if old != nil {
-		old.Stop()
-	}
-
-	// Resolve the Python executable. If the user has set a path in
-	// Settings, that takes priority; otherwise we auto-discover.
-	pythonPath := a.resolvePythonPath()
-	logSidecar(fmt.Sprintf("bootSidecar: python=%s", pythonPath))
-
-	// Find the sidecar script.
-	scriptPath, err := a.findSidecarScript()
-	if err != nil {
-		logSidecar(fmt.Sprintf("bootSidecar: findSidecarScript FAILED: %s", err.Error()))
-		a.storeSidecarError("sidecar script not found: " + err.Error())
-		backend.EmitStatus(ctx, backend.SidecarStatusError, err.Error())
-		return
-	}
-	logSidecar(fmt.Sprintf("bootSidecar: script=%s", scriptPath))
-	a.mu.Lock()
-	a.lastScriptPath = scriptPath
-	a.mu.Unlock()
-
-	// Use the script's directory as the working directory so that
-	// deezload.py can locate its sibling `.env` file.
-	workDir := filepath.Dir(scriptPath)
-	logSidecar(fmt.Sprintf("bootSidecar: workDir=%s", workDir))
-
-	// Best-effort: if the script lives in the per-user extract dir
-	// (production build) and the .env lives somewhere else, copy it
-	// over so deezload.py's `load_dotenv()` finds it. We do not error
-	// out if this fails — the user can drop the file there manually.
-	extraEnv := a.copyDotEnvIfMissing(workDir)
-	logSidecar(fmt.Sprintf("bootSidecar: extraEnv keys=%d", len(extraEnv)))
-
-	sidecar, err := backend.NewSidecar(backend.SidecarConfig{
-		PythonBinary: pythonPath,
-		ScriptPath:   scriptPath,
-		WorkDir:      workDir,
-		ExtraEnv:     extraEnv,
-	})
-	if err != nil {
-		logSidecar(fmt.Sprintf("bootSidecar: NewSidecar FAILED: %s", err.Error()))
-		a.storeSidecarError("sidecar init: " + err.Error())
-		backend.EmitStatus(ctx, backend.SidecarStatusError, "sidecar init: "+err.Error())
-		return
-	}
-	a.mu.Lock()
-	a.sidecar = sidecar
-	a.mu.Unlock()
-
-	handler := backend.NewSidecarEventHandler(ctx, a.tasks, a.history)
-
-	// Wrap OnStatus so every change is also stored durably in the App
-	// struct.  This lets GetSidecarInfo return the latest state even
-	// when the frontend missed the real-time Wails event.
-	sidecar.SetHandlers(handler.OnEvent, func(status, message string) {
-		a.mu.Lock()
-		a.lastSidecarStatus = status
-		a.lastSidecarMessage = message
-		a.lastSidecarLogs = sidecar.Logs()
-		a.mu.Unlock()
-		handler.OnStatus(status, message)
-	})
-
-	logSidecar("bootSidecar: calling sidecar.Start()...")
-	if err := sidecar.Start(ctx); err != nil {
-		logSidecar(fmt.Sprintf("bootSidecar: sidecar.Start FAILED: %s", err.Error()))
-		a.storeSidecarError("sidecar start: " + err.Error())
-		backend.EmitStatus(ctx, backend.SidecarStatusError, "sidecar start: "+err.Error())
-		return
-	}
-	logSidecar("bootSidecar: sidecar.Start returned OK")
-
-	// Forward current settings to the sidecar (downloads folder, etc.).
-	go func() {
-		s, err := a.config.Load()
-		if err != nil {
-			return
-		}
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		_, _ = sidecar.Request(ctx, "set_settings", map[string]any{
-			"downloads_folder": s.DownloadsFolder,
-			"export_lrc_file":  s.ExportLrcFile,
-		})
-	}()
-}
-
-// logSidecar appends a single line to sidecar.log next to the executable.
-// Best-effort: errors writing the log are silently ignored.
-func logSidecar(msg string) {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(filepath.Dir(exe), "sidecar.log"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	f.WriteString(time.Now().Format("2006-01-02 15:04:05.000") + " " + msg + "\n")
-}
-
-// resolvePythonPath returns the Python executable to use. It first checks
-// the persisted Settings; if empty, falls back to auto-discovery.
-func (a *App) resolvePythonPath() string {
-	s, err := a.config.Load()
-	if err == nil && s.PythonPath != "" {
-		a.lastPythonPath = s.PythonPath
-		return s.PythonPath
-	}
-	path, err := backend.FindPythonExecutable()
-	if err != nil {
-		a.lastPythonPath = "python" // UI fallback
-		return "python"
-	}
-	a.lastPythonPath = path
-	return path
-}
-
-// storeSidecarError records a durable error status and message.
-func (a *App) storeSidecarError(msg string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.lastSidecarStatus = backend.SidecarStatusError
-	a.lastSidecarMessage = msg
-}
-
-// copyDotEnvIfMissing ensures the sidecar's workdir has a .env file.
-// If the file already exists in workdir, nothing is done. Otherwise we
-// look for one in a list of well-known locations and copy it over. We
-// also parse it and return Telegram credentials as env overrides so the
-// sidecar picks them up even if the copy step failed.
-func (a *App) copyDotEnvIfMissing(workDir string) map[string]string {
-	envPath := filepath.Join(workDir, ".env")
-	// If workdir already has a .env, just load it and return the vars.
-	if _, err := os.Stat(envPath); err == nil {
-		kv, _ := backend.LoadDotEnv(envPath)
-		return telegramEnv(kv)
-	}
-	// Otherwise, try to find a .env elsewhere and copy it in.
-	src := backend.FindDotEnv()
-	if src == "" {
-		return nil
-	}
-	if data, err := os.ReadFile(src); err == nil {
-		_ = os.WriteFile(envPath, data, 0o600)
-	}
-	kv, _ := backend.LoadDotEnv(src)
-	return telegramEnv(kv)
-}
-
-// telegramEnv extracts the Telegram credentials from a .env map. The
-// sidecar will use these in addition to (or in lieu of) its own dotenv
-// lookup.
-func telegramEnv(kv map[string]string) map[string]string {
-	out := map[string]string{}
-	for _, k := range []string{"TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_PHONE"} {
-		if v, ok := kv[k]; ok && v != "" {
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // shutdown is called by Wails before the window closes.
 func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
-	s := a.sidecar
-	a.sidecar = nil
 	a.started = false
 	a.mu.Unlock()
-	if s != nil {
-		s.Stop()
-	}
 	if a.storage != nil {
 		_ = a.storage.Close()
 	}
-}
-
-func (a *App) findSidecarScript() (string, error) {
-	// On-disk candidates first. In dev mode (`wails dev`) the script
-	// lives at `sidecar/deezload.py` relative to the project root and
-	// changes are picked up on reload.
-	candidates := []string{
-		"sidecar/deezload.py",
-		"./sidecar/deezload.py",
-	}
-	// Common locations relative to the running executable.
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		// Same directory as the binary (post-build copy scenario):
-		//   build/bin/Lymuru.exe  ->  build/bin/sidecar/deezload.py
-		candidates = append(candidates, filepath.Join(dir, "sidecar", "deezload.py"))
-		// One level up (project-layout scenario):
-		//   build/bin/Lymuru.exe  ->  build/sidecar/deezload.py
-		candidates = append(candidates, filepath.Join(dir, "..", "sidecar", "deezload.py"))
-		// Two levels up (wails dev from project root):
-		//   Lymuru/build/bin/Lymuru.exe  ->  Lymuru/sidecar/deezload.py
-		candidates = append(candidates, filepath.Join(dir, "..", "..", "sidecar", "deezload.py"))
-	}
-	// User-wide install location (per-user, writable):
-	if cfg, err := os.UserConfigDir(); err == nil {
-		candidates = append(candidates, filepath.Join(cfg, "Lymuru", "sidecar", "deezload.py"))
-	}
-	if local, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(local, ".Lymuru", "sidecar", "deezload.py"))
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			abs, _ := filepath.Abs(p)
-			return abs, nil
-		}
-	}
-	// Fall back to extracting the script embedded in the binary. This
-	// makes the production build self-contained when no sidecar is
-	// shipped next to the executable.
-	if path, err := backend.ExtractEmbeddedSidecar(); err == nil {
-		return path, nil
-	}
-	return "", fmt.Errorf("sidecar script not found in any of: %v", candidates)
 }
 
 // ---------------------------------------------------------------------------
@@ -329,153 +83,14 @@ type SidecarTaskResponse struct {
 	TaskID string `json:"task_id"`
 }
 
-// AuthState describes the current Telegram auth state.
-type AuthState struct {
-	State        string `json:"state"` // "authenticated" | "auth_required" | "unknown"
-	Phone        string `json:"phone,omitempty"`
-	SidecarReady bool   `json:"sidecar_ready"`
-}
+
 
 // GetVersion returns the app version.
 func (a *App) GetVersion() string {
 	return backend.AppVersion()
 }
 
-// GetSidecarStatus returns the current sidecar status, preferring the
-// durable copy so late-arriving frontend subscribers still see the truth.
-func (a *App) GetSidecarStatus() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.lastSidecarStatus != "" {
-		return a.lastSidecarStatus
-	}
-	if a.sidecar != nil {
-		return a.sidecar.Status()
-	}
-	return backend.SidecarStatusStopped
-}
 
-// GetSidecarLogs returns the most recent stderr lines emitted by the
-// sidecar. Useful for diagnosing startup failures (e.g. missing
-// Python dependencies) without having to dig through the OS logs.
-func (a *App) GetSidecarLogs() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.sidecar != nil {
-		return a.sidecar.Logs()
-	}
-	return a.lastSidecarLogs
-}
-
-// GetSidecarInfo returns a bundle of sidecar diagnostic info
-// (status, message, recent log lines, Python path, script dir).
-type SidecarInfo struct {
-	Status     string   `json:"status"`
-	Message    string   `json:"message"`
-	Logs       []string `json:"logs"`
-	ScriptDir  string   `json:"script_dir"`
-	PythonPath string   `json:"python_path"`
-}
-
-func (a *App) GetSidecarInfo() SidecarInfo {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	info := SidecarInfo{
-		PythonPath: a.lastPythonPath,
-		ScriptDir:  a.lastScriptPath,
-	}
-	// Prefer the live sidecar snapshot over the durable fields.
-	if a.sidecar != nil {
-		info.Status, info.Message, info.Logs = a.sidecar.Snapshot()
-		info.ScriptDir = filepath.Dir(a.sidecar.ScriptPath())
-	} else {
-		info.Status = a.lastSidecarStatus
-		info.Message = a.lastSidecarMessage
-		info.Logs = append([]string{}, a.lastSidecarLogs...)
-	}
-	if info.Status == "" {
-		info.Status = backend.SidecarStatusStopped
-	}
-	if info.PythonPath == "" {
-		info.PythonPath = "python"
-	}
-	return info
-}
-
-// TestSidecar kicks off a sidecar restart and returns immediately. The
-// frontend should poll GetSidecarInfo() to observe the result.
-type TestSidecarResponse struct {
-	OK      bool   `json:"ok"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
-
-func (a *App) TestSidecar() TestSidecarResponse {
-	if a.ctx == nil {
-		return TestSidecarResponse{OK: false, Status: "error", Message: "app not ready"}
-	}
-	logSidecar("TestSidecar: triggered")
-	go a.bootSidecar(a.ctx)
-	// Return immediately; the frontend polls GetSidecarInfo.
-	return TestSidecarResponse{OK: true, Status: "starting", Message: "Sidecar restart initiated"}
-}
-
-// GetAuthState returns whether the user is authenticated with Telegram.
-func (a *App) GetAuthState() AuthState {
-	a.mu.Lock()
-	s := a.sidecar
-	a.mu.Unlock()
-	state := AuthState{State: "unknown"}
-	if s == nil {
-		return state
-	}
-	switch s.Status() {
-	case backend.SidecarStatusAuth:
-		state.State = "auth_required"
-		// Phone is included in the status event; we can't easily get it here,
-		// so leave empty and let the sidecar emit auth:needed with the phone.
-	case backend.SidecarStatusOnline:
-		state.State = "authenticated"
-	case backend.SidecarStatusStarting, backend.SidecarStatusStopped:
-		state.State = "unknown"
-	case backend.SidecarStatusError:
-		state.State = "error"
-	}
-	state.SidecarReady = s.Status() != backend.SidecarStatusStopped
-	return state
-}
-
-// SubmitAuthCode forwards a Telegram verification code to the sidecar.
-func (a *App) SubmitAuthCode(code string) error {
-	a.mu.Lock()
-	s := a.sidecar
-	a.mu.Unlock()
-	if s == nil {
-		return errors.New("sidecar not running")
-	}
-	// Use a short timeout so the UI never freezes if the sidecar
-	// doesn't respond (e.g. because another handler blocked stdin).
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-	if _, err := s.Request(ctx, "submit_auth", map[string]any{"code": code}); err != nil {
-		return err
-	}
-	return nil
-}
-
-// SignOut is a no-op for now; the session file remains on disk. Users can
-// delete it manually if they want a clean re-auth.
-func (a *App) SignOut() error { return nil }
-
-// RestartSidecar stops the running sidecar (if any) and starts a fresh
-// one. The new status is emitted via the sidecar:status event.
-func (a *App) RestartSidecar() error {
-	if a.ctx == nil {
-		return errors.New("app not ready")
-	}
-	go a.bootSidecar(a.ctx)
-	return nil
-}
 
 
 
@@ -610,38 +225,7 @@ func (a *App) ExtractLrc(flacPath string) (ExtractResult, error) {
 	}, nil
 }
 
-func (a *App) simpleTask(method string, params map[string]any, query string) (SidecarTaskResponse, error) {
-	if a.ctx == nil {
-		return SidecarTaskResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return SidecarTaskResponse{}, errors.New("sidecar not running")
-	}
-	taskID := uuid.NewString()
-	a.tasks.Add(backend.Task{
-		TaskID:    taskID,
-		TaskType:  method,
-		Query:     query,
-		Stage:     "Queued",
-		Phase:     "preparing",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	if params == nil {
-		params = map[string]any{}
-	}
-	params["task_id"] = taskID
-	resp, err := s.Request(a.ctx, method, params)
-	if err != nil {
-		a.tasks.Remove(taskID)
-		return SidecarTaskResponse{}, err
-	}
-	if !resp.OK {
-		a.tasks.Remove(taskID)
-		return SidecarTaskResponse{}, errors.New(resp.Error)
-	}
-	return SidecarTaskResponse{TaskID: taskID}, nil
-}
+
 
 // GetDownloadsPath returns the configured downloads folder.
 func (a *App) GetDownloadsPath() string {
@@ -704,8 +288,3 @@ func (a *App) PickFolder() (string, error) {
 	})
 }
 
-func (a *App) getSidecar() *backend.Sidecar {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.sidecar
-}

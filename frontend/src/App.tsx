@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { initTheme, applyTheme } from "@/lib/themes";
-import { GetAuthState, GetVersion, GetSidecarInfo, RestartSidecar, Events, type SidecarInfo } from "@/lib/api";
-import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
+import { GetVersion } from "@/lib/api";
 import { useQueue, QueueProvider } from "@/context/QueueContext";
 import { ToastProvider } from "@/components/Toast";
 import { Sidebar, type Page } from "@/components/Sidebar";
@@ -10,7 +9,6 @@ import { TitleBar } from "@/components/TitleBar";
 import { DownloadProgressToast } from "@/components/DownloadProgressToast";
 import { DownloadQueue } from "@/components/DownloadQueue";
 import { CooldownBanner } from "@/components/CooldownBanner";
-import { AuthDialog } from "@/components/AuthDialog";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { HomePage } from "@/components/pages/HomePage";
 import { LyricsManagerPage } from "@/components/pages/LyricsManagerPage";
@@ -110,10 +108,6 @@ function MobileNav({
   );
 }
 
-interface SidecarStatus {
-  status: string;
-  message: string;
-}
 
 function AuthenticatedApp({
   themeMode,
@@ -124,34 +118,18 @@ function AuthenticatedApp({
 }) {
   const [page, setPage] = useState<Page>("home");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [sidecar, setSidecar] = useState<SidecarStatus>({ status: "starting", message: "" });
-  const [authRequired, setAuthRequired] = useState(false);
-  const [authPhone, setAuthPhone] = useState("");
   const [version, setVersion] = useState<string>("0.0.0");
   const queue = useQueue();
 
-  // Poll sidecar status on mount and via Wails events.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [v, info, a] = await Promise.all([
-          GetVersion(),
-          GetSidecarInfo(),
-          GetAuthState(),
-        ]);
+        const v = await GetVersion();
         if (cancelled) return;
         setVersion(typeof v === "string" ? v : "0.0.0");
-        const si = info as SidecarInfo;
-        setSidecar({ status: si.status || "starting", message: si.message || "" });
-        const authState = a as { state?: string } | undefined;
-        if (authState && authState.state === "auth_required") {
-          setAuthRequired(true);
-          // Phone comes from the durable sidecar status message, not GetAuthState.
-          if (si.message) setAuthPhone(String(si.message));
-        }
       } catch {
-        /* ignore — Wails bindings may not be ready yet */
+        /* ignore */
       }
     })();
     return () => {
@@ -159,34 +137,10 @@ function AuthenticatedApp({
     };
   }, []);
 
-  useEffect(() => {
-    const onStatus = (...args: unknown[]) => {
-      const data = args[0] as SidecarStatus | undefined;
-      if (!data) return;
-      setSidecar({ status: String(data.status), message: String(data.message ?? "") });
-      if (data.status === "auth_required") {
-        setAuthRequired(true);
-        if (data.message) setAuthPhone(String(data.message));
-      }
-      if (data.status === "online") setAuthRequired(false);
-    };
-    EventsOn(Events.Sidecar, onStatus as (...args: unknown[]) => void);
-    return () => {
-      EventsOff(Events.Sidecar);
-    };
-  }, []);
-
   const topTask = queue.tasks
     .filter((t) => t.phase !== "complete" && !t.error)
     .sort((a, b) => (b.download_percent || 0) - (a.download_percent || 0))[0];
 
-  const handleRestartSidecar = useCallback(async () => {
-    try {
-      await RestartSidecar();
-    } catch (err) {
-      console.error("Failed to restart sidecar:", err);
-    }
-  }, []);
 
   return (
     <TooltipProvider>
@@ -199,10 +153,7 @@ function AuthenticatedApp({
               themeMode={themeMode}
               onToggleTheme={onToggleTheme}
               onOpenMobileMenu={() => setMobileNavOpen(true)}
-              sidecar={sidecar}
               version={version}
-              onRestartSidecar={handleRestartSidecar}
-              onOpenAuth={() => setAuthRequired(true)}
             />
             <CooldownBanner message={undefined} />
             <main className="flex-1 overflow-y-auto">
@@ -236,12 +187,6 @@ function AuthenticatedApp({
           onClearAll={queue.clearAll}
         />
       </div>
-      <AuthDialog
-        open={authRequired}
-        phone={authPhone}
-        onAuthenticated={() => setAuthRequired(false)}
-        onClose={() => setAuthRequired(false)}
-      />
     </TooltipProvider>
   );
 }

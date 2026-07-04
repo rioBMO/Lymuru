@@ -8,7 +8,6 @@ import {
   type Settings,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { SidecarDiagnosticsCard } from "@/components/SidecarDiagnosticsCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +22,6 @@ const DEFAULTS: Settings = {
   theme_mode: "light",
   downloads_folder: "",
   has_completed_onboarding: false,
-  python_path: "",
   export_lrc_file: true,
   ffmpeg_path: "",
   audio_source: "auto",
@@ -104,8 +102,7 @@ export function SettingsPage({ themeMode, onToggleTheme }: Props) {
         <CardHeader>
           <CardTitle>Downloads folder</CardTitle>
           <CardDescription>
-            Where downloaded FLAC files are saved. The Telegram sidecar uses
-            this folder when running.
+            Where downloaded FLAC files are saved.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -189,31 +186,6 @@ export function SettingsPage({ themeMode, onToggleTheme }: Props) {
         </CardContent>
       </Card>
 
-      {/* Python executable path */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Python executable</CardTitle>
-          <CardDescription>
-            Path to the Python interpreter used by the sidecar. Leave empty
-            to auto-detect from common install locations.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-1.5">
-            <Label htmlFor="python-path">Executable path</Label>
-            <Input
-              id="python-path"
-              value={settings.python_path || ""}
-              onChange={(e) => setSettings((s) => ({ ...s, python_path: e.target.value }))}
-              placeholder="python (auto-detect)"
-              className="font-mono"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Sidecar diagnostics */}
-      <SidecarDiagnosticsCard />
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={saving || loading}>
