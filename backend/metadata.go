@@ -49,7 +49,26 @@ func resolveMetadataSeparator(separator string) string {
 }
 
 func EmbedMetadata(filepath string, metadata Metadata, coverPath string) error {
+	fetchAndSetLyrics(filepath, &metadata)
 	return TagFile(filepath, metadata, coverPath)
+}
+
+func fetchAndSetLyrics(filePath string, metadata *Metadata) {
+	if metadata.Artist == "" || metadata.Title == "" {
+		return
+	}
+	lyrics, _, err := SearchLRCLIB(metadata.Artist, metadata.Title)
+	if err == nil && lyrics != "" {
+		metadata.Lyrics = lyrics
+		
+		cfg, err := LoadConfigSettings()
+		if err == nil {
+			if exportLrc, ok := cfg["export_lrc_file"].(bool); ok && exportLrc {
+				lrcPath := strings.TrimSuffix(filePath, pathfilepath.Ext(filePath)) + ".lrc"
+				_ = os.WriteFile(lrcPath, []byte(lyrics), 0644)
+			}
+		}
+	}
 }
 
 func fileExists(path string) bool {
@@ -833,6 +852,7 @@ func extractFullMetadataWithFFprobe(filePath string) (Metadata, error) {
 }
 
 func EmbedMetadataToConvertedFile(filePath string, metadata Metadata, coverPath string) error {
+	fetchAndSetLyrics(filePath, &metadata)
 	filePath = norm.NFC.String(filePath)
 	ext := strings.ToLower(pathfilepath.Ext(filePath))
 

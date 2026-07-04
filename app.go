@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"strings"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -527,21 +527,34 @@ func (a *App) SaveSettings(s backend.Settings) error {
 	return a.config.Save(s)
 }
 
-// AddLyrics triggers an add-lyrics task on the sidecar.
-func (a *App) AddLyrics(filePath, artist, title string) (SidecarTaskResponse, error) {
-	return a.simpleTask("add_lyrics", map[string]any{
-		"file_path": filePath,
-		"artist":    artist,
-		"title":     title,
-	}, fmt.Sprintf("Add lyrics: %s", filepath.Base(filePath)))
+// AddLyrics searches and embeds lyrics directly.
+func (a *App) AddLyrics(filePath, artist, title string) (string, error) {
+	lyrics, synced, err := backend.SearchLRCLIB(artist, title)
+	if err != nil {
+		return "", err
+	}
+	err = backend.EmbedLyrics(filePath, lyrics)
+	if err != nil {
+		return "", err
+	}
+	syncStr := "unsynced"
+	if synced {
+		syncStr = "synced"
+	}
+	return fmt.Sprintf("Embedded %s lyrics", syncStr), nil
 }
 
-// EmbedLrc triggers an embed-lrc task on the sidecar.
-func (a *App) EmbedLrc(flacPath, lrcPath string) (SidecarTaskResponse, error) {
-	return a.simpleTask("embed_lrc", map[string]any{
-		"flac_path": flacPath,
-		"lrc_path":  lrcPath,
-	}, fmt.Sprintf("Embed LRC: %s", filepath.Base(flacPath)))
+// EmbedLrc embeds a local LRC file directly.
+func (a *App) EmbedLrc(flacPath, lrcPath string) (string, error) {
+	lrcBytes, err := os.ReadFile(lrcPath)
+	if err != nil {
+		return "", err
+	}
+	err = backend.EmbedLyrics(flacPath, string(lrcBytes))
+	if err != nil {
+		return "", err
+	}
+	return "LRC embedded successfully", nil
 }
 
 // RomanizeResult is the payload returned by RomanizeLrc.
@@ -551,24 +564,26 @@ type RomanizeResult struct {
 	Message     string `json:"message"`
 }
 
-// RomanizeLrc runs the romanize-lrc sidecar command.
+// RomanizeLrc romanizes an LRC file.
 func (a *App) RomanizeLrc(lrcPath string) (RomanizeResult, error) {
-	s := a.getSidecar()
-	if s == nil {
-		return RomanizeResult{}, errors.New("sidecar not running")
-	}
-	resp, err := s.Request(a.ctx, "romanize_lrc", map[string]any{"lrc_path": lrcPath})
+	lrcBytes, err := os.ReadFile(lrcPath)
 	if err != nil {
 		return RomanizeResult{}, err
 	}
-	if !resp.OK {
-		return RomanizeResult{}, errors.New(resp.Error)
+	romanized, changed := backend.RomanizeLyrics(string(lrcBytes))
+	if !changed {
+		return RomanizeResult{Message: "No CJK lyrics found for romanization"}, nil
 	}
-	var out RomanizeResult
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
-		return RomanizeResult{}, fmt.Errorf("decode result: %w", err)
+	
+	outPath := strings.TrimSuffix(lrcPath, ".lrc") + "_rom.lrc"
+	if err := os.WriteFile(outPath, []byte(romanized), 0644); err != nil {
+		return RomanizeResult{}, err
 	}
-	return out, nil
+	return RomanizeResult{
+		Romanized:   romanized,
+		DownloadURL: outPath,
+		Message:     "Romanized successfully",
+	}, nil
 }
 
 // ExtractResult is the payload returned by ExtractLrc.
@@ -578,24 +593,21 @@ type ExtractResult struct {
 	OutputURL string `json:"output_url"`
 }
 
-// ExtractLrc runs the extract-lrc sidecar command.
+// ExtractLrc reads lyrics from the file's tags and writes to an LRC file.
 func (a *App) ExtractLrc(flacPath string) (ExtractResult, error) {
-	s := a.getSidecar()
-	if s == nil {
-		return ExtractResult{}, errors.New("sidecar not running")
-	}
-	resp, err := s.Request(a.ctx, "extract_lrc", map[string]any{"flac_path": flacPath})
+	lyrics, err := backend.ExtractLyrics(flacPath)
 	if err != nil {
 		return ExtractResult{}, err
 	}
-	if !resp.OK {
-		return ExtractResult{}, errors.New(resp.Error)
+	outPath := strings.TrimSuffix(flacPath, filepath.Ext(flacPath)) + ".lrc"
+	if err := os.WriteFile(outPath, []byte(lyrics), 0644); err != nil {
+		return ExtractResult{}, err
 	}
-	var out ExtractResult
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
-		return ExtractResult{}, fmt.Errorf("decode result: %w", err)
-	}
-	return out, nil
+	return ExtractResult{
+		Lyrics:    lyrics,
+		IsSynced:  strings.Contains(lyrics, "[00:"),
+		OutputURL: outPath,
+	}, nil
 }
 
 func (a *App) simpleTask(method string, params map[string]any, query string) (SidecarTaskResponse, error) {
