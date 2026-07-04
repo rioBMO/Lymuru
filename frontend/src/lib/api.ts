@@ -129,6 +129,8 @@ export interface Settings {
   has_completed_onboarding: boolean;
   python_path: string;
   export_lrc_file: boolean;
+  ffmpeg_path: string;
+  audio_source: string;
 }
 
 export interface AuthState {

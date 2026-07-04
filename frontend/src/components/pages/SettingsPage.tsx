@@ -25,6 +25,8 @@ const DEFAULTS: Settings = {
   has_completed_onboarding: false,
   python_path: "",
   export_lrc_file: true,
+  ffmpeg_path: "",
+  audio_source: "auto",
 };
 
 export function SettingsPage({ themeMode, onToggleTheme }: Props) {
@@ -161,6 +163,29 @@ export function SettingsPage({ themeMode, onToggleTheme }: Props) {
             />
             <span className="text-sm">Export .lrc file</span>
           </label>
+        </CardContent>
+      </Card>
+
+      {/* FFmpeg executable path */}
+      <Card>
+        <CardHeader>
+          <CardTitle>FFmpeg executable</CardTitle>
+          <CardDescription>
+            Path to the FFmpeg binary used for audio conversion. Leave empty
+            to auto-detect from common install locations.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1.5">
+            <Label htmlFor="ffmpeg-path">FFmpeg executable (auto-detect if empty)</Label>
+            <Input
+              id="ffmpeg-path"
+              value={settings.ffmpeg_path || ""}
+              onChange={(e) => setSettings((s) => ({ ...s, ffmpeg_path: e.target.value }))}
+              placeholder="ffmpeg (auto-detect)"
+              className="font-mono"
+            />
+          </div>
         </CardContent>
       </Card>
 

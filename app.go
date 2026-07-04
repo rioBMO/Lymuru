@@ -324,8 +324,8 @@ type SearchResponse struct {
 	SearchKey string         `json:"search_key"`
 }
 
-// DownloadResponse is returned by Download / DownloadLink.
-type DownloadResponse struct {
+// SidecarTaskResponse is returned by sidecar-queued tasks.
+type SidecarTaskResponse struct {
 	TaskID string `json:"task_id"`
 }
 
@@ -477,120 +477,7 @@ func (a *App) RestartSidecar() error {
 	return nil
 }
 
-// Search asks the sidecar to search for a track.
-func (a *App) Search(artist, title string) (SearchResponse, error) {
-	if a.ctx == nil {
-		return SearchResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return SearchResponse{}, errors.New("sidecar not running")
-	}
-	params := map[string]string{"artist": artist, "title": title}
-	resp, err := s.Request(a.ctx, "search", params)
-	if err != nil {
-		return SearchResponse{}, err
-	}
-	if !resp.OK {
-		return SearchResponse{}, errors.New(resp.Error)
-	}
-	// The sidecar returns a list of results and a search_key. We forward
-	// them as-is and let the frontend work with the shape.
-	var out SearchResponse
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
-		// Fall back to a generic shape.
-		return SearchResponse{}, fmt.Errorf("decode search result: %w", err)
-	}
-	return out, nil
-}
 
-// Download starts a download for the given search hit.
-func (a *App) Download(searchKey string, choice int, artist, title string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	taskID := uuid.NewString()
-	a.tasks.Add(backend.Task{
-		TaskID:    taskID,
-		TaskType:  "search_choose",
-		Query:     fmt.Sprintf("%s — %s", artist, title),
-		Stage:     "Queued",
-		Phase:     "preparing",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	params := map[string]any{
-		"task_id":    taskID,
-		"search_key": searchKey,
-		"choice":     choice,
-		"artist":     artist,
-		"title":      title,
-	}
-	resp, err := s.Request(a.ctx, "download", params)
-	if err != nil {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, err
-	}
-	if !resp.OK {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, errors.New(resp.Error)
-	}
-	return DownloadResponse{TaskID: taskID}, nil
-}
-
-// DownloadLink starts a download from a Spotify/Deezer link.
-func (a *App) DownloadLink(url string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	taskID := uuid.NewString()
-	a.tasks.Add(backend.Task{
-		TaskID:    taskID,
-		TaskType:  "link",
-		Query:     url,
-		Stage:     "Queued",
-		Phase:     "preparing",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	params := map[string]any{
-		"task_id": taskID,
-		"url":     url,
-	}
-	resp, err := s.Request(a.ctx, "download_link", params)
-	if err != nil {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, err
-	}
-	if !resp.OK {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, errors.New(resp.Error)
-	}
-	return DownloadResponse{TaskID: taskID}, nil
-}
-
-// ChooseLyrics tells the sidecar to continue with the chosen lyrics flavor.
-func (a *App) ChooseLyrics(taskID, choice string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	// Use the same taskID; the sidecar emits a complete event in-place.
-	params := map[string]any{"task_id": taskID, "choice": choice}
-	if _, err := s.Request(a.ctx, "choose_lyrics", params); err != nil {
-		return DownloadResponse{}, err
-	}
-	return DownloadResponse{TaskID: taskID}, nil
-}
 
 // GetTask returns a snapshot of a task by id.
 func (a *App) GetTask(taskID string) (backend.Task, error) {
@@ -641,7 +528,7 @@ func (a *App) SaveSettings(s backend.Settings) error {
 }
 
 // AddLyrics triggers an add-lyrics task on the sidecar.
-func (a *App) AddLyrics(filePath, artist, title string) (DownloadResponse, error) {
+func (a *App) AddLyrics(filePath, artist, title string) (SidecarTaskResponse, error) {
 	return a.simpleTask("add_lyrics", map[string]any{
 		"file_path": filePath,
 		"artist":    artist,
@@ -650,7 +537,7 @@ func (a *App) AddLyrics(filePath, artist, title string) (DownloadResponse, error
 }
 
 // EmbedLrc triggers an embed-lrc task on the sidecar.
-func (a *App) EmbedLrc(flacPath, lrcPath string) (DownloadResponse, error) {
+func (a *App) EmbedLrc(flacPath, lrcPath string) (SidecarTaskResponse, error) {
 	return a.simpleTask("embed_lrc", map[string]any{
 		"flac_path": flacPath,
 		"lrc_path":  lrcPath,
@@ -711,13 +598,13 @@ func (a *App) ExtractLrc(flacPath string) (ExtractResult, error) {
 	return out, nil
 }
 
-func (a *App) simpleTask(method string, params map[string]any, query string) (DownloadResponse, error) {
+func (a *App) simpleTask(method string, params map[string]any, query string) (SidecarTaskResponse, error) {
 	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
+		return SidecarTaskResponse{}, errors.New("app not ready")
 	}
 	s := a.getSidecar()
 	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
+		return SidecarTaskResponse{}, errors.New("sidecar not running")
 	}
 	taskID := uuid.NewString()
 	a.tasks.Add(backend.Task{
@@ -735,13 +622,13 @@ func (a *App) simpleTask(method string, params map[string]any, query string) (Do
 	resp, err := s.Request(a.ctx, method, params)
 	if err != nil {
 		a.tasks.Remove(taskID)
-		return DownloadResponse{}, err
+		return SidecarTaskResponse{}, err
 	}
 	if !resp.OK {
 		a.tasks.Remove(taskID)
-		return DownloadResponse{}, errors.New(resp.Error)
+		return SidecarTaskResponse{}, errors.New(resp.Error)
 	}
-	return DownloadResponse{TaskID: taskID}, nil
+	return SidecarTaskResponse{TaskID: taskID}, nil
 }
 
 // GetDownloadsPath returns the configured downloads folder.

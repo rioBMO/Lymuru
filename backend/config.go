@@ -18,6 +18,17 @@ type Settings struct {
 	HasCompletedOnboarding bool   `json:"has_completed_onboarding"` // onboarding done
 	PythonPath             string `json:"python_path"`              // path to python executable; auto-detect if empty
 	ExportLrcFile          bool   `json:"export_lrc_file"`          // save .lrc file alongside downloaded audio
+	FFmpegPath             string `json:"ffmpeg_path"`              // path to ffmpeg executable; auto-detect if empty
+	AudioSource            string `json:"audio_source"`             // "auto" (default), "tidal", "amazon", "qobuz", or "sidecar"
+
+	AudioFormat           string `json:"audio_format"`
+	FilenameFormat        string `json:"filename_format"`
+	CustomTidalAPI        string `json:"custom_tidal_api"`
+	CustomQobuzAPI        string `json:"custom_qobuz_api"`
+	ExistingFileCheckMode string `json:"existing_file_check_mode"`
+	LinkResolver          string `json:"link_resolver"`
+	AutoOrder             string `json:"auto_order"`
+	Separator             string `json:"separator"`
 }
 
 // DefaultSettings returns sensible defaults. DownloadsFolder is expanded.
@@ -29,6 +40,13 @@ func DefaultSettings() Settings {
 		DownloadsFolder:        dl,
 		HasCompletedOnboarding: false,
 		ExportLrcFile:          true,
+		AudioSource:            "auto",
+		AudioFormat:            "LOSSLESS",
+		FilenameFormat:         "title-artist",
+		ExistingFileCheckMode:  "filename",
+		LinkResolver:           "deezer-songlink",
+		AutoOrder:              "tidal-qobuz-amazon",
+		Separator:              "comma",
 	}
 }
 
@@ -69,6 +87,28 @@ func (c *Config) Load() (Settings, error) {
 			out.PythonPath = v
 		case "export_lrc_file":
 			out.ExportLrcFile = v == "1" || v == "true"
+		case "ffmpeg_path":
+			out.FFmpegPath = v
+		case "audio_source":
+			if v != "" {
+				out.AudioSource = v
+			}
+		case "audio_format":
+			out.AudioFormat = v
+		case "filename_format":
+			out.FilenameFormat = v
+		case "custom_tidal_api":
+			out.CustomTidalAPI = v
+		case "custom_qobuz_api":
+			out.CustomQobuzAPI = v
+		case "existing_file_check_mode":
+			out.ExistingFileCheckMode = v
+		case "link_resolver":
+			out.LinkResolver = v
+		case "auto_order":
+			out.AutoOrder = v
+		case "separator":
+			out.Separator = v
 		}
 	}
 	return out, rows.Err()
@@ -87,6 +127,16 @@ func (c *Config) Save(s Settings) error {
 		"has_completed_onboarding": boolToOnboard(s.HasCompletedOnboarding),
 		"python_path":              s.PythonPath,
 		"export_lrc_file":          boolToOnboard(s.ExportLrcFile),
+		"ffmpeg_path":              s.FFmpegPath,
+		"audio_source":             s.AudioSource,
+		"audio_format":             s.AudioFormat,
+		"filename_format":          s.FilenameFormat,
+		"custom_tidal_api":         s.CustomTidalAPI,
+		"custom_qobuz_api":         s.CustomQobuzAPI,
+		"existing_file_check_mode": s.ExistingFileCheckMode,
+		"link_resolver":            s.LinkResolver,
+		"auto_order":               s.AutoOrder,
+		"separator":                s.Separator,
 	}
 	tx, err := c.db.Conn().Begin()
 	if err != nil {
