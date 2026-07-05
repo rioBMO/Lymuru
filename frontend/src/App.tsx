@@ -29,6 +29,7 @@ import { HistoryPage } from "@/components/HistoryPage";
 import { AudioConverterPage } from "@/components/AudioConverterPage";
 import { AudioAnalysisPage } from "@/components/AudioAnalysisPage";
 import { AuthDialog } from "@/components/AuthDialog";
+import { AudioResamplerPage } from "@/components/AudioResamplerPage";
 import type { HistoryItem } from "@/components/FetchHistory";
 import { useDownload } from "@/hooks/useDownload";
 import { useMetadata } from "@/hooks/useMetadata";
@@ -579,6 +580,8 @@ function App() {
                 return <AudioConverterPage />;
             case "audio-analysis":
                 return <AudioAnalysisPage />;
+            case "audio-resampler":
+                return <AudioResamplerPage />;
             default:
                 return (<>
                     <Header version={CURRENT_VERSION} hasUpdate={hasUpdate} releaseDate={releaseDate}/>

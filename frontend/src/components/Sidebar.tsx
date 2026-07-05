@@ -12,9 +12,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/utils";
-import { WandSparkles, Activity } from "lucide-react";
+import { WandSparkles, Activity, AudioLines } from "lucide-react";
 
-export type PageType = "main" | "settings" | "file-manager" | "lyrics-manager" | "history" | "audio-converter" | "audio-analysis";
+export type PageType = "main" | "settings" | "file-manager" | "lyrics-manager" | "history" | "audio-converter" | "audio-analysis" | "audio-resampler";
 
 interface SidebarProps {
     currentPage: PageType;
@@ -109,9 +109,9 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                         <DropdownMenuTrigger asChild>
                             <TooltipTrigger asChild>
                                 <Button
-                                    variant={["file-manager", "lyrics-manager", "audio-converter", "audio-analysis"].includes(currentPage) ? "secondary" : "ghost"}
+                                    variant={["file-manager", "lyrics-manager", "audio-converter", "audio-analysis", "audio-resampler"].includes(currentPage) ? "secondary" : "ghost"}
                                     size="icon"
-                                    className={`h-10 w-10 ${["file-manager", "lyrics-manager", "audio-converter", "audio-analysis"].includes(currentPage) ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
+                                    className={`h-10 w-10 ${["file-manager", "lyrics-manager", "audio-converter", "audio-analysis", "audio-resampler"].includes(currentPage) ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
                                 >
                                     <ToolCaseIcon size={20} />
                                 </Button>
@@ -151,6 +151,13 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                         >
                             <Activity size={16} />
                             <span>Audio Analysis</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => onPageChange("audio-resampler")}
+                            className="gap-3 cursor-pointer py-2 px-3"
+                        >
+                            <AudioLines size={16} />
+                            <span>Audio Resampler</span>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

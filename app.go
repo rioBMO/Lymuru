@@ -130,6 +130,13 @@ type ConvertAudioRequest struct {
 	Codec        string   `json:"codec"`
 }
 
+// ResampleAudioRequest mirrors backend.ResampleRequest for Wails binding.
+type ResampleAudioRequest struct {
+	InputFiles []string `json:"input_files"`
+	SampleRate string   `json:"sample_rate"`
+	BitDepth   string   `json:"bit_depth"`
+}
+
 // ------------------------------------------
 // FFmpeg
 // ------------------------------------------
@@ -728,6 +735,19 @@ func (a *App) ConvertAudio(req ConvertAudioRequest) ([]backend.ConvertAudioResul
 		Codec:        req.Codec,
 	}
 	return backend.ConvertAudio(backendReq)
+}
+
+// ResampleAudio resamples one or more audio files to the requested sample rate / bit depth.
+func (a *App) ResampleAudio(req ResampleAudioRequest) ([]backend.ResampleResult, error) {
+	if len(req.InputFiles) == 0 {
+		return nil, fmt.Errorf("no input files provided")
+	}
+	backendReq := backend.ResampleRequest{
+		InputFiles: req.InputFiles,
+		SampleRate: req.SampleRate,
+		BitDepth:   req.BitDepth,
+	}
+	return backend.ResampleAudio(backendReq)
 }
 
 // AnalyzeAudio returns ffprobe-derived audio quality metrics for a file.
