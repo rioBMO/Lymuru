@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { getSettings, getSettingsWithDefaults, loadSettings, saveSettings, applyThemeMode, applyFont } from "@/lib/settings";
 import { applyTheme } from "@/lib/themes";
 import { openExternal } from "@/lib/utils";
-import { OpenFolder, CheckFFmpegInstalled, DownloadFFmpeg, GetRecentFetches, SaveRecentFetches } from "../wailsjs/go/main/App";
+import { OpenFolder, CheckFFmpegInstalled, DownloadFFmpeg, GetRecentFetches, SaveRecentFetches, SubmitSidecarAuthCode } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff, Quit } from "../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
@@ -28,6 +28,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 import { HistoryPage } from "@/components/HistoryPage";
 import { AudioConverterPage } from "@/components/AudioConverterPage";
 import { AudioAnalysisPage } from "@/components/AudioAnalysisPage";
+import { AuthDialog } from "@/components/AuthDialog";
 import type { HistoryItem } from "@/components/FetchHistory";
 import { useDownload } from "@/hooks/useDownload";
 import { useMetadata } from "@/hooks/useMetadata";
@@ -162,6 +163,16 @@ function App() {
     const [isInstallingFFmpeg, setIsInstallingFFmpeg] = useState(false);
     const [ffmpegInstallProgress, setFfmpegInstallProgress] = useState(0);
     const [ffmpegInstallStatus, setFfmpegInstallStatus] = useState("");
+    const [showAuthDialog, setShowAuthDialog] = useState(false);
+
+    useEffect(() => {
+        EventsOn("sidecar:event", (event: any) => {
+            if (event.name === "auth_needed") {
+                setShowAuthDialog(true);
+            }
+        });
+        return () => { EventsOff("sidecar:event"); };
+    }, []);
     useLayoutEffect(() => {
         const savedSettings = getSettings();
         if (savedSettings) {
@@ -783,6 +794,16 @@ function App() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <AuthDialog
+                open={showAuthDialog}
+                onOpenChange={setShowAuthDialog}
+                onSubmitCode={async (code) => {
+                    await SubmitSidecarAuthCode(code);
+                    setShowAuthDialog(false);
+                    toast.success("Authenticated!");
+                }}
+            />
         </div>
     </TooltipProvider>
         </ErrorBoundary>

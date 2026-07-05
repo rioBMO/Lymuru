@@ -182,6 +182,49 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 			sourceLabel = "Qobuz"
 		}
 
+	case "deezer":
+		if a.sidecar == nil || !a.sidecar.IsRunning() {
+			return DownloadResponse{
+				Success: false,
+				Error:   "Deezer sidecar is not running",
+				ItemID:  req.ItemID,
+			}, fmt.Errorf("sidecar not running")
+		}
+		if req.TrackName == "" || req.ArtistName == "" {
+			return DownloadResponse{
+				Success: false,
+				Error:   "track name and artist are required for Deezer",
+				ItemID:  req.ItemID,
+			}, fmt.Errorf("track info required")
+		}
+		search, searchErr := a.sidecar.Search(req.ArtistName, req.TrackName)
+		if searchErr != nil {
+			return DownloadResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Deezer search: %v", searchErr),
+				ItemID:  req.ItemID,
+			}, searchErr
+		}
+		searchKey, _ := search["search_key"].(string)
+		if searchKey == "" {
+			return DownloadResponse{
+				Success: false,
+				Error:   "No results found on Deezer",
+				ItemID:  req.ItemID,
+			}, fmt.Errorf("no deezer results")
+		}
+		taskID, dlErr := a.sidecar.Download(searchKey, 0)
+		if dlErr != nil {
+			return DownloadResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Deezer download: %v", dlErr),
+				ItemID:  req.ItemID,
+			}, dlErr
+		}
+		filename = taskID
+		sourceURL = "https://deezer.com"
+		sourceLabel = "Deezer"
+
 	default:
 		return DownloadResponse{
 			Success: false,
