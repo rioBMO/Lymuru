@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lymuru/lymuru/backend"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type DownloadRequest struct {
@@ -286,16 +287,47 @@ func (a *App) AddToDownloadQueue(spotifyID, trackName, artistName, albumName str
 }
 
 func (a *App) MarkDownloadItemFailed(itemID, errorMsg string) {
-	// stub — queue is managed in-memory; failing items is handled
-	// by the provider error paths
+	backend.FailDownloadItem(itemID, errorMsg)
 }
 
 func (a *App) ForceStopDownloads() {
-	// stub — stop is managed by cancellation scopes inside providers
+	backend.ForceStopActiveDownloads()
 }
 
 func (a *App) ExportFailedDownloads() (string, error) {
-	return "", nil // Stub
+	queue := backend.GetDownloadQueue().Queue
+	var failed []backend.DownloadItem
+	for _, item := range queue {
+		if item.Status == backend.StatusFailed {
+			failed = append(failed, item)
+		}
+	}
+	if len(failed) == 0 {
+		return "No failed downloads to export", nil
+	}
+
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	defaultName := "failed_downloads_" + timestamp + ".txt"
+
+	path, err := wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Filters: []wailsruntime.FileFilter{
+			{DisplayName: "Text files (*.txt)", Pattern: "*.txt"},
+		},
+	})
+	if err != nil {
+		return "Export cancelled", nil
+	}
+
+	var lines []string
+	for _, item := range failed {
+		lines = append(lines, fmt.Sprintf("%s - %s | %s", item.TrackName, item.ArtistName, item.ErrorMessage))
+	}
+	if writeErr := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); writeErr != nil {
+		return "", fmt.Errorf("failed to write export file: %v", writeErr)
+	}
+
+	return fmt.Sprintf("Successfully exported %d failed downloads", len(failed)), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -389,12 +421,60 @@ func (a *App) CheckFilesExistence(outputDir, rootDir string, tracks []CheckFileE
 	return results
 }
 
-// CreateM3U8File writes an .m3u8 playlist file (stub).
+// CreateM3U8File writes an .m3u8 playlist file with paths relative to outputDir.
 func (a *App) CreateM3U8File(m3u8Name, outputDir string, filePaths []string) error {
-	return nil // stub
+	if len(filePaths) == 0 {
+		return nil
+	}
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
+	safeName := backend.SanitizeFilename(m3u8Name)
+	if safeName == "" {
+		safeName = "playlist"
+	}
+
+	m3u8Path := filepath.Join(outputDir, safeName+".m3u8")
+
+	f, err := os.Create(m3u8Path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString("#EXTM3U\n"); err != nil {
+		return err
+	}
+
+	for _, path := range filePaths {
+		if path == "" {
+			continue
+		}
+		relPath, err := filepath.Rel(outputDir, path)
+		if err != nil {
+			relPath = path
+		}
+		relPath = filepath.ToSlash(relPath)
+		if _, err := f.WriteString(relPath + "\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-// CreateLogFile writes a download log file (stub).
+// CreateLogFile writes a download log file.
 func (a *App) CreateLogFile(fileName, outputDir string, logs []string) error {
-	return nil // stub
+	if len(logs) == 0 {
+		return nil
+	}
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
+	path := filepath.Join(outputDir, fileName+".txt")
+	return os.WriteFile(path, []byte(strings.Join(logs, "\n")), 0644)
 }

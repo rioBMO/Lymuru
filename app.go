@@ -168,15 +168,40 @@ func (a *App) GetDefaults() map[string]interface{} {
 	}
 }
 
-// LoadSettings returns settings from persistent storage (stub — the frontend
-// falls back to localStorage for real persistence).
-func (a *App) LoadSettings() map[string]interface{} { return nil }
+// LoadSettings returns settings from persistent storage. Returns nil on error
+// so the frontend falls back to localStorage.
+func (a *App) LoadSettings() map[string]interface{} {
+	s, err := a.config.Load()
+	if err != nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"theme_mode":               s.ThemeMode,
+		"downloads_folder":         s.DownloadsFolder,
+		"has_completed_onboarding": s.HasCompletedOnboarding,
+		"export_lrc_file":          s.ExportLrcFile,
+		"ffmpeg_path":              s.FFmpegPath,
+		"audio_source":             s.AudioSource,
+		"audio_format":             s.AudioFormat,
+		"filename_format":          s.FilenameFormat,
+		"customTidalApi":           s.CustomTidalAPI,
+		"customQobuzApi":           s.CustomQobuzAPI,
+		"existing_file_check_mode": s.ExistingFileCheckMode,
+		"link_resolver":            s.LinkResolver,
+		"auto_order":               s.AutoOrder,
+		"separator":                s.Separator,
+	}
+}
 
-// LoadFonts returns custom font definitions (stub).
-func (a *App) LoadFonts() []map[string]interface{} { return nil }
+// LoadFonts returns custom font definitions from persistent storage.
+func (a *App) LoadFonts() []map[string]interface{} {
+	return a.config.LoadFonts()
+}
 
-// SaveFonts persists custom font definitions (stub).
-func (a *App) SaveFonts(f []map[string]interface{}) error { return nil }
+// SaveFonts persists custom font definitions.
+func (a *App) SaveFonts(f []map[string]interface{}) error {
+	return a.config.SaveFonts(f)
+}
 
 // ------------------------------------------
 
@@ -232,8 +257,14 @@ func (a *App) GetSettings() map[string]interface{} {
 			"export_lrc_file":          defaults.ExportLrcFile,
 			"ffmpeg_path":              defaults.FFmpegPath,
 			"audio_source":             defaults.AudioSource,
-			"customTidalApi":           "",
-			"customQobuzApi":           "",
+			"audio_format":             defaults.AudioFormat,
+			"filename_format":          defaults.FilenameFormat,
+			"customTidalApi":           defaults.CustomTidalAPI,
+			"customQobuzApi":           defaults.CustomQobuzAPI,
+			"existing_file_check_mode": defaults.ExistingFileCheckMode,
+			"link_resolver":            defaults.LinkResolver,
+			"auto_order":               defaults.AutoOrder,
+			"separator":                defaults.Separator,
 		}
 	}
 	return map[string]interface{}{
@@ -243,38 +274,92 @@ func (a *App) GetSettings() map[string]interface{} {
 		"export_lrc_file":          s.ExportLrcFile,
 		"ffmpeg_path":              s.FFmpegPath,
 		"audio_source":             s.AudioSource,
+		"audio_format":             s.AudioFormat,
+		"filename_format":          s.FilenameFormat,
 		"customTidalApi":           s.CustomTidalAPI,
 		"customQobuzApi":           s.CustomQobuzAPI,
+		"existing_file_check_mode": s.ExistingFileCheckMode,
+		"link_resolver":            s.LinkResolver,
+		"auto_order":               s.AutoOrder,
+		"separator":                s.Separator,
 	}
 }
 
 // SaveSettings persists settings from a map (SpoitFLAC-compatible).
-// Falls back to the simple backend config when possible.
+// Accepts both snake_case and camelCase keys for robustness.
 func (a *App) SaveSettings(s map[string]interface{}) error {
 	var bs backend.Settings
+	// --- required fields ---
 	if v, ok := s["downloads_folder"].(string); ok && v != "" {
+		bs.DownloadsFolder = v
+	} else if v, ok := s["downloadPath"].(string); ok && v != "" {
 		bs.DownloadsFolder = v
 	}
 	if v, ok := s["theme_mode"].(string); ok {
 		bs.ThemeMode = v
+	} else if v, ok := s["themeMode"].(string); ok {
+		bs.ThemeMode = v
 	}
 	if v, ok := s["has_completed_onboarding"].(bool); ok {
+		bs.HasCompletedOnboarding = v
+	} else if v, ok := s["hasCompletedOnboarding"].(bool); ok {
 		bs.HasCompletedOnboarding = v
 	}
 	if v, ok := s["export_lrc_file"].(bool); ok {
 		bs.ExportLrcFile = v
+	} else if v, ok := s["exportLrcFile"].(bool); ok {
+		bs.ExportLrcFile = v
 	}
 	if v, ok := s["ffmpeg_path"].(string); ok {
+		bs.FFmpegPath = v
+	} else if v, ok := s["ffmpegPath"].(string); ok {
 		bs.FFmpegPath = v
 	}
 	if v, ok := s["audio_source"].(string); ok {
 		bs.AudioSource = v
+	} else if v, ok := s["audioSource"].(string); ok {
+		bs.AudioSource = v
+	} else if v, ok := s["downloader"].(string); ok {
+		bs.AudioSource = v
+	}
+	// --- additional backend fields ---
+	if v, ok := s["audio_format"].(string); ok {
+		bs.AudioFormat = v
+	} else if v, ok := s["audioFormat"].(string); ok {
+		bs.AudioFormat = v
+	}
+	if v, ok := s["filename_format"].(string); ok {
+		bs.FilenameFormat = v
+	} else if v, ok := s["filenameFormat"].(string); ok {
+		bs.FilenameFormat = v
 	}
 	if v, ok := s["customTidalApi"].(string); ok {
+		bs.CustomTidalAPI = v
+	} else if v, ok := s["custom_tidal_api"].(string); ok {
 		bs.CustomTidalAPI = v
 	}
 	if v, ok := s["customQobuzApi"].(string); ok {
 		bs.CustomQobuzAPI = v
+	} else if v, ok := s["custom_qobuz_api"].(string); ok {
+		bs.CustomQobuzAPI = v
+	}
+	if v, ok := s["existing_file_check_mode"].(string); ok {
+		bs.ExistingFileCheckMode = v
+	} else if v, ok := s["existingFileCheckMode"].(string); ok {
+		bs.ExistingFileCheckMode = v
+	}
+	if v, ok := s["link_resolver"].(string); ok {
+		bs.LinkResolver = v
+	} else if v, ok := s["linkResolver"].(string); ok {
+		bs.LinkResolver = v
+	}
+	if v, ok := s["auto_order"].(string); ok {
+		bs.AutoOrder = v
+	} else if v, ok := s["autoOrder"].(string); ok {
+		bs.AutoOrder = v
+	}
+	if v, ok := s["separator"].(string); ok {
+		bs.Separator = v
 	}
 	if bs.DownloadsFolder != "" {
 		if err := backend.EnsureDownloadsFolder(bs.DownloadsFolder); err != nil {

@@ -160,6 +160,44 @@ func boolToOnboard(b bool) string {
 	return "0"
 }
 
+// SaveFonts persists custom font definitions as JSON under the custom_fonts key.
+func (c *Config) SaveFonts(fonts []map[string]interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.db == nil {
+		return errors.New("config: nil db")
+	}
+	raw, err := json.Marshal(fonts)
+	if err != nil {
+		return err
+	}
+	_, err = c.db.Conn().Exec(
+		`INSERT INTO settings (key, value) VALUES ('custom_fonts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		string(raw),
+	)
+	return err
+}
+
+// LoadFonts returns custom font definitions stored under the custom_fonts key.
+// Returns nil if the key is missing, the database is unavailable, or the data is malformed.
+func (c *Config) LoadFonts() []map[string]interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.db == nil {
+		return nil
+	}
+	var raw string
+	err := c.db.Conn().QueryRow(`SELECT value FROM settings WHERE key = 'custom_fonts'`).Scan(&raw)
+	if err != nil {
+		return nil
+	}
+	var fonts []map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &fonts); err != nil {
+		return nil
+	}
+	return fonts
+}
+
 // EnsureDownloadsFolder creates the downloads folder if it doesn't exist.
 func EnsureDownloadsFolder(path string) error {
 	if path == "" {
