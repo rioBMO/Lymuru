@@ -26,6 +26,8 @@ import { FileManagerPage } from "@/components/FileManagerPage";
 import { LyricsManagerPage } from "@/components/LyricsManagerPage";
 import { SettingsPage } from "@/components/SettingsPage";
 import { HistoryPage } from "@/components/HistoryPage";
+import { AudioConverterPage } from "@/components/AudioConverterPage";
+import { AudioAnalysisPage } from "@/components/AudioAnalysisPage";
 import type { HistoryItem } from "@/components/FetchHistory";
 import { useDownload } from "@/hooks/useDownload";
 import { useMetadata } from "@/hooks/useMetadata";
@@ -562,6 +564,10 @@ function App() {
                 return <FileManagerPage />;
             case "lyrics-manager":
                 return <LyricsManagerPage />;
+            case "audio-converter":
+                return <AudioConverterPage />;
+            case "audio-analysis":
+                return <AudioAnalysisPage />;
             default:
                 return (<>
                     <Header version={CURRENT_VERSION} hasUpdate={hasUpdate} releaseDate={releaseDate}/>

@@ -113,3 +113,39 @@ func SelectImageVideoDialog(ctx context.Context) ([]string, error) {
 
 	return selectedPaths, nil
 }
+
+func SelectMultipleFiles(ctx context.Context) ([]string, error) {
+	files, err := wailsRuntime.OpenMultipleFilesDialog(ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Select Audio Files",
+		Filters: []wailsRuntime.FileFilter{
+			{
+				DisplayName: "Audio Files (*.mp3, *.m4a, *.flac, *.aac)",
+				Pattern:     "*.mp3;*.m4a;*.flac;*.aac",
+			},
+			{
+				DisplayName: "MP3 Files (*.mp3)",
+				Pattern:     "*.mp3",
+			},
+			{
+				DisplayName: "M4A Files (*.m4a)",
+				Pattern:     "*.m4a",
+			},
+			{
+				DisplayName: "FLAC Files (*.flac)",
+				Pattern:     "*.flac",
+			},
+			{
+				DisplayName: "AAC Files (*.aac)",
+				Pattern:     "*.aac",
+			},
+			{
+				DisplayName: "All Files (*.*)",
+				Pattern:     "*.*",
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}

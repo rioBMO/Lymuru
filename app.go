@@ -90,9 +90,39 @@ type DownloadFFmpegResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// --- Dummy Stubs for React UI compatibility ---
-func (a *App) CheckFFmpegInstalled() bool             { return true }
-func (a *App) DownloadFFmpeg() DownloadFFmpegResponse { return DownloadFFmpegResponse{Success: true} }
+// ConvertAudioRequest mirrors backend.ConvertAudioRequest for Wails binding.
+type ConvertAudioRequest struct {
+	InputFiles   []string `json:"input_files"`
+	OutputFormat string   `json:"output_format"`
+	Bitrate      string   `json:"bitrate"`
+	Codec        string   `json:"codec"`
+}
+
+// ------------------------------------------
+// FFmpeg
+// ------------------------------------------
+
+func (a *App) CheckFFmpegInstalled() (bool, error) {
+	return backend.IsFFmpegInstalled()
+}
+
+func (a *App) DownloadFFmpeg() DownloadFFmpegResponse {
+	wailsruntime.EventsEmit(a.ctx, "ffmpeg:status", "starting")
+	err := backend.DownloadFFmpeg(func(progress int) {
+		wailsruntime.EventsEmit(a.ctx, "ffmpeg:progress", progress)
+	})
+	if err != nil {
+		wailsruntime.EventsEmit(a.ctx, "ffmpeg:status", "failed")
+		return DownloadFFmpegResponse{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+	wailsruntime.EventsEmit(a.ctx, "ffmpeg:status", "completed")
+	return DownloadFFmpegResponse{
+		Success: true,
+	}
+}
 
 // History stubs — return empty results until real SQLite history is wired.
 func (a *App) GetDownloadHistory() []backend.DownloadHistoryItem {
@@ -617,4 +647,48 @@ func (a *App) RenameFileTo(oldPath, newName string) error {
 	ext := filepath.Ext(oldPath)
 	newPath := filepath.Join(dir, newName+ext)
 	return os.Rename(oldPath, newPath)
+}
+
+// ---------------------------------------------------------------------------
+// Audio tools bindings
+// ---------------------------------------------------------------------------
+
+// SelectAudioFiles opens a file picker for selecting multiple audio files.
+func (a *App) SelectAudioFiles() ([]string, error) {
+	return backend.SelectMultipleFiles(a.ctx)
+}
+
+// ListAudioFilesInDir scans a directory for audio files and returns their info.
+func (a *App) ListAudioFilesInDir(dirPath string) ([]backend.FileInfo, error) {
+	if dirPath == "" {
+		return nil, fmt.Errorf("directory path is required")
+	}
+	return backend.ListAudioFiles(dirPath)
+}
+
+// GetFileSizes returns the file size in bytes for each path.
+func (a *App) GetFileSizes(files []string) map[string]int64 {
+	return backend.GetFileSizes(files)
+}
+
+// ConvertAudio converts one or more audio files to the requested format.
+func (a *App) ConvertAudio(req ConvertAudioRequest) ([]backend.ConvertAudioResult, error) {
+	if len(req.InputFiles) == 0 {
+		return nil, fmt.Errorf("no input files provided")
+	}
+	backendReq := backend.ConvertAudioRequest{
+		InputFiles:   req.InputFiles,
+		OutputFormat: req.OutputFormat,
+		Bitrate:      req.Bitrate,
+		Codec:        req.Codec,
+	}
+	return backend.ConvertAudio(backendReq)
+}
+
+// AnalyzeAudio returns ffprobe-derived audio quality metrics for a file.
+func (a *App) AnalyzeAudio(filePath string) (*backend.AnalysisResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.GetMetadataWithFFprobe(filePath)
 }

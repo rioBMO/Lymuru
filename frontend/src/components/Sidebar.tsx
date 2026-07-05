@@ -12,8 +12,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/utils";
+import { WandSparkles, Activity } from "lucide-react";
 
-export type PageType = "main" | "settings" | "file-manager" | "lyrics-manager" | "history";
+export type PageType = "main" | "settings" | "file-manager" | "lyrics-manager" | "history" | "audio-converter" | "audio-analysis";
 
 interface SidebarProps {
     currentPage: PageType;
@@ -108,9 +109,9 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                         <DropdownMenuTrigger asChild>
                             <TooltipTrigger asChild>
                                 <Button
-                                    variant={["file-manager", "lyrics-manager"].includes(currentPage) ? "secondary" : "ghost"}
+                                    variant={["file-manager", "lyrics-manager", "audio-converter", "audio-analysis"].includes(currentPage) ? "secondary" : "ghost"}
                                     size="icon"
-                                    className={`h-10 w-10 ${["file-manager", "lyrics-manager"].includes(currentPage) ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
+                                    className={`h-10 w-10 ${["file-manager", "lyrics-manager", "audio-converter", "audio-analysis"].includes(currentPage) ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
                                 >
                                     <ToolCaseIcon size={20} />
                                 </Button>
@@ -136,6 +137,20 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                         >
                             <FileTextIcon ref={lyricsManagerIconRef} size={16} />
                             <span>Lyrics Manager</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => onPageChange("audio-converter")}
+                            className="gap-3 cursor-pointer py-2 px-3"
+                        >
+                            <WandSparkles size={16} />
+                            <span>Audio Converter</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => onPageChange("audio-analysis")}
+                            className="gap-3 cursor-pointer py-2 px-3"
+                        >
+                            <Activity size={16} />
+                            <span>Audio Analysis</span>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
