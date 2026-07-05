@@ -12,7 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, getFontOptions, parseGoogleFontUrl, loadGoogleFontUrl, loadCustomFonts, saveCustomFonts, TEMPLATE_VARIABLES, DEFAULT_SETTINGS, sanitizeAutoOrder, type Settings as SettingsType, type FontFamily, type CustomFontFamily, type ExistingFileCheckMode, } from "@/lib/settings";
 import { FormatEditor } from "@/components/FormatEditor";
 import { themes, applyTheme } from "@/lib/themes";
-import { SelectFolder, OpenConfigFolder, CheckCustomTidalAPI, CheckCustomQobuzAPI } from "../../wailsjs/go/main/App";
+import { SelectFolder, OpenConfigFolder, CheckCustomTidalAPI, CheckCustomQobuzAPI, SetSidecarCredentials, RestartSidecar, GetSidecarStatus, HasSidecarCredentials } from "../../wailsjs/go/main/App";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { openExternal } from "@/lib/utils";
 import { ApiStatusTab } from "./ApiStatusTab";
@@ -38,6 +38,28 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     const hasUnsavedChanges = JSON.stringify(savedSettings) !== JSON.stringify(tempSettings);
     const effectiveDownloader = tempSettings.downloader;
     const effectiveAutoOrder = sanitizeAutoOrder(tempSettings.autoOrder);
+    // Sidecar state (credentials stored in OS keychain, not in tempSettings).
+    const [sidecarApiId, setSidecarApiId] = useState("");
+    const [sidecarApiHash, setSidecarApiHash] = useState("");
+    const [sidecarPhone, setSidecarPhone] = useState("");
+    const [credentialsModified, setCredentialsModified] = useState(false);
+    const [savingCredentials, setSavingCredentials] = useState(false);
+    const [sidecarRunning, setSidecarRunning] = useState(false);
+    const [sidecarAuth, setSidecarAuth] = useState(false);
+    useEffect(() => {
+        if (activeTab === "sidecar") {
+            HasSidecarCredentials().then((has) => {
+                if (has) {
+                    // Credentials exist in keychain but we can't read them back for display.
+                    setCredentialsModified(false);
+                }
+            }).catch(() => {});
+            GetSidecarStatus().then((s: any) => {
+                setSidecarRunning(s.running);
+                setSidecarAuth(s.authenticated);
+            }).catch(() => {});
+        }
+    }, [activeTab]);
     const resetToSaved = useCallback(() => {
         const freshSavedSettings = getSettings();
         flushSync(() => {
@@ -262,7 +284,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             toast.error(`Failed to check Qobuz-DL instance: ${error}`);
         }
     };
-    const [activeTab, setActiveTab] = useState<"general" | "download" | "naming" | "files" | "metadata" | "status">("general");
+    const [activeTab, setActiveTab] = useState<"general" | "download" | "naming" | "files" | "metadata" | "status" | "sidecar">("general");
     return (<div className="space-y-4 h-full flex flex-col">
       <div className="flex items-center justify-between shrink-0">
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -313,6 +335,10 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
         <Button variant={activeTab === "status" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("status")} className="rounded-b-none gap-2">
           <Router className="h-4 w-4"/>
           Status
+        </Button>
+        <Button variant={activeTab === "sidecar" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("sidecar")} className="rounded-b-none gap-2">
+          <Router className="h-4 w-4"/>
+          Deezer
         </Button>
       </div>
 
@@ -890,6 +916,151 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
           </div>)}
 
         {activeTab === "status" && (<ApiStatusTab />)}
+
+        {activeTab === "sidecar" && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+            {/* Left column */}
+            <div className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="sidecar-enabled" className="text-base font-semibold">Enable Deezer Sidecar</Label>
+                  <Switch
+                    id="sidecar-enabled"
+                    checked={tempSettings.sidecarEnabled || false}
+                    onCheckedChange={(v) => setTempSettings((p) => ({ ...p, sidecarEnabled: v }))}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Uses the DeezLoad Telegram bot as a download source. Requires Telegram API credentials.
+                </p>
+              </div>
+
+              <div className="space-y-3" style={{ opacity: tempSettings.sidecarEnabled ? 1 : 0.5, pointerEvents: tempSettings.sidecarEnabled ? "auto" : "none" }}>
+                <div className="space-y-2">
+                  <Label htmlFor="sidecar-python">Python Path (optional)</Label>
+                  <Input
+                    id="sidecar-python"
+                    placeholder="Auto-detect if empty"
+                    value={tempSettings.pythonPath || ""}
+                    onChange={(e) => setTempSettings((p) => ({ ...p, pythonPath: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">Leave empty to auto-detect from PATH. Set manually if Python is installed in a custom location.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Session File</Label>
+                  <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2 font-mono text-xs">
+                    data/deezload_session.session
+                  </p>
+                  <p className="text-xs text-muted-foreground">Auto-managed in the app data directory.</p>
+                </div>
+
+                {/* Status */}
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-block h-2 w-2 rounded-full ${sidecarRunning ? (sidecarAuth ? "bg-green-500" : "bg-yellow-500") : "bg-gray-400"}`} />
+                    <span className="text-sm">
+                      {sidecarRunning ? (sidecarAuth ? "Running & Authenticated" : "Running (not authenticated)") : "Not running"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2 pt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await RestartSidecar();
+                        toast.success("Sidecar restarted");
+                        setSidecarRunning(true);
+                      } catch (err: any) {
+                        toast.error("Failed to restart sidecar", { description: err?.message || String(err) });
+                      }
+                    }}
+                    disabled={!tempSettings.sidecarEnabled}
+                  >
+                    Restart Sidecar
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Right column — credentials */}
+            <div className="space-y-6" style={{ opacity: tempSettings.sidecarEnabled ? 1 : 0.5, pointerEvents: tempSettings.sidecarEnabled ? "auto" : "none" }}>
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold">Telegram API Credentials</h3>
+                <p className="text-xs text-muted-foreground">
+                  Get these from <a href="#" onClick={(e) => { e.preventDefault(); openExternal("https://my.telegram.org/apps"); }} className="underline text-primary">my.telegram.org</a>.
+                  Stored securely in your OS keychain.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="sidecar-api-id">API ID</Label>
+                  <Input
+                    id="sidecar-api-id"
+                    placeholder="e.g. 123456"
+                    value={sidecarApiId}
+                    onChange={(e) => { setSidecarApiId(e.target.value); setCredentialsModified(true); }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="sidecar-api-hash">API Hash</Label>
+                  <Input
+                    id="sidecar-api-hash"
+                    type="password"
+                    placeholder="e.g. abc123def456..."
+                    value={sidecarApiHash}
+                    onChange={(e) => { setSidecarApiHash(e.target.value); setCredentialsModified(true); }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="sidecar-phone">Phone Number</Label>
+                  <Input
+                    id="sidecar-phone"
+                    placeholder="+1234567890"
+                    value={sidecarPhone}
+                    onChange={(e) => { setSidecarPhone(e.target.value); setCredentialsModified(true); }}
+                  />
+                  <p className="text-xs text-muted-foreground">International format with country code.</p>
+                </div>
+
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={async () => {
+                    if (!sidecarApiId || !sidecarApiHash || !sidecarPhone) {
+                      toast.error("All credential fields are required");
+                      return;
+                    }
+                    setSavingCredentials(true);
+                    try {
+                      await SetSidecarCredentials(sidecarApiId, sidecarApiHash, sidecarPhone);
+                      setCredentialsModified(false);
+                      toast.success("Credentials saved to keychain");
+                    } catch (err: any) {
+                      toast.error("Failed to save credentials", { description: err?.message || String(err) });
+                    } finally {
+                      setSavingCredentials(false);
+                    }
+                  }}
+                  disabled={!credentialsModified || savingCredentials || !tempSettings.sidecarEnabled}
+                >
+                  {savingCredentials ? "Saving..." : "Save Credentials"}
+                </Button>
+                {credentialsModified && (
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">Unsaved credential changes</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <Dialog open={showAddFontDialog} onOpenChange={(open) => open ? setShowAddFontDialog(true) : closeAddFontDialog()}>

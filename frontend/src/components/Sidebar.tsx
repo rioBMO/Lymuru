@@ -104,30 +104,14 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                     </TooltipContent>
                 </Tooltip>
 
-                <Tooltip delayDuration={0}>
-                    <TooltipTrigger asChild>
-                        <Button
-                            variant={currentPage === "api-status" ? "secondary" : "ghost"}
-                            size="icon"
-                            className={`h-10 w-10 ${currentPage === "api-status" ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
-                            onClick={() => onPageChange("api-status")}
-                        >
-                            <PlugZap size={20} />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                        <p>API Status</p>
-                    </TooltipContent>
-                </Tooltip>
-
                 <DropdownMenu>
                     <Tooltip delayDuration={0}>
                         <DropdownMenuTrigger asChild>
                             <TooltipTrigger asChild>
                                 <Button
-                                    variant={["file-manager", "lyrics-manager", "audio-converter", "audio-analysis", "audio-resampler"].includes(currentPage) ? "secondary" : "ghost"}
+                                    variant={["file-manager", "lyrics-manager", "audio-converter", "audio-analysis", "audio-resampler", "api-status"].includes(currentPage) ? "secondary" : "ghost"}
                                     size="icon"
-                                    className={`h-10 w-10 ${["file-manager", "lyrics-manager", "audio-converter", "audio-analysis", "audio-resampler"].includes(currentPage) ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
+                                    className={`h-10 w-10 ${["file-manager", "lyrics-manager", "audio-converter", "audio-analysis", "audio-resampler", "api-status"].includes(currentPage) ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
                                 >
                                     <ToolCaseIcon size={20} />
                                 </Button>
@@ -174,6 +158,13 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                         >
                             <AudioLines size={16} />
                             <span>Audio Resampler</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => onPageChange("api-status")}
+                            className="gap-3 cursor-pointer py-2 px-3"
+                        >
+                            <PlugZap size={16} />
+                            <span>API Status</span>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

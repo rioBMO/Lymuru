@@ -63,6 +63,8 @@ export interface Settings {
     embedGenre: boolean;
     redownloadWithSuffix: boolean;
     separator: "comma" | "semicolon";
+    sidecarEnabled?: boolean;
+    pythonPath?: string;
 }
 export const FOLDER_PRESETS: Record<FolderPreset, {
     label: string;
@@ -229,6 +231,8 @@ export const DEFAULT_SETTINGS: Settings = {
     embedGenre: false,
     redownloadWithSuffix: true,
     separator: "semicolon",
+    sidecarEnabled: false,
+    pythonPath: "",
 };
 export const FONT_OPTIONS: FontOption[] = [
     {
