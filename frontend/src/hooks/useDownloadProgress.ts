@@ -10,6 +10,8 @@ export interface DownloadProgressInfo {
     cooldown_secs?: number;
     cooldown_message?: string;
     cooldown_event_id?: number;
+    cooldown_provider?: string;
+    cooldown_until?: number;
 }
 export function useDownloadProgress() {
     const [progress, setProgress] = useState<DownloadProgressInfo>({

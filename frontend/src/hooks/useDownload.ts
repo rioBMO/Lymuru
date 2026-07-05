@@ -246,9 +246,11 @@ export function useDownload() {
             const tidalQuality = getTidalAudioFormat(settings, "auto");
             const is24Bit = (settings.autoQuality || "24") === "24";
             const qobuzQuality = is24Bit ? "27" : "6";
+            const { ClearCommunityCooldown } = await import("../../wailsjs/go/main/App");
             for (const s of order) {
                 if (s === "tidal" && streamingURLs?.tidal_url) {
                     try {
+                        ClearCommunityCooldown();
                         logger.debug(`trying Tidal for: ${trackName} - ${artistName}`);
                         const response = await downloadTrack({
                             service: "tidal",
@@ -304,6 +306,7 @@ export function useDownload() {
                 }
                 else if (s === "amazon" && streamingURLs?.amazon_url) {
                     try {
+                        ClearCommunityCooldown();
                         logger.debug(`trying amazon for: ${trackName} - ${artistName}`);
                         const response = await downloadTrack({
                             service: "amazon",
@@ -356,6 +359,7 @@ export function useDownload() {
                 }
                 else if (s === "qobuz") {
                     try {
+                        ClearCommunityCooldown();
                         logger.debug(`trying qobuz for: ${trackName} - ${artistName}`);
                         const response = await downloadTrack({
                             service: "qobuz",
@@ -569,9 +573,11 @@ export function useDownload() {
             const tidalQuality = getTidalAudioFormat(settings, "auto");
             const is24Bit = (settings.autoQuality || "24") === "24";
             const qobuzQuality = is24Bit ? "27" : "6";
+            const { ClearCommunityCooldown } = await import("../../wailsjs/go/main/App");
             for (const s of order) {
                 if (s === "tidal" && streamingURLs?.tidal_url) {
                     try {
+                        ClearCommunityCooldown();
                         logger.debug(`trying Tidal for: ${trackName} - ${artistName}`);
                         const response = await downloadTrack({
                             service: "tidal",
@@ -627,6 +633,7 @@ export function useDownload() {
                 }
                 else if (s === "amazon" && streamingURLs?.amazon_url) {
                     try {
+                        ClearCommunityCooldown();
                         logger.debug(`trying amazon for: ${trackName} - ${artistName}`);
                         const response = await downloadTrack({
                             service: "amazon",
@@ -679,6 +686,7 @@ export function useDownload() {
                 }
                 else if (s === "qobuz") {
                     try {
+                        ClearCommunityCooldown();
                         logger.debug(`trying qobuz for: ${trackName} - ${artistName}`);
                         const response = await downloadTrack({
                             service: "qobuz",
@@ -821,7 +829,7 @@ export function useDownload() {
             }
             else {
                 if (isCooldownMessage(response.error)) {
-                    toast.info(response.error || "Servers on a scheduled break, try again shortly");
+                    toast.info("All download providers are on cooldown. Add a custom API in Settings or try again later.");
                 }
                 else {
                     toast.error(response.error || "Download failed");
@@ -832,7 +840,7 @@ export function useDownload() {
         catch (err) {
             const message = err instanceof Error ? err.message : "Download failed";
             if (isCooldownMessage(message)) {
-                toast.info(message);
+                toast.info("All download providers are on cooldown. Add a custom API in Settings or try again later.");
             }
             else {
                 toast.error(message);
@@ -978,7 +986,7 @@ export function useDownload() {
                     setFailedTracks((prev) => new Set(prev).add(id));
                     if (isCooldownMessage(response.error)) {
                         const remaining = tracksToDownload.length - i - 1;
-                        toast.info(response.error || "Servers on a scheduled break. Pausing downloads.");
+                        toast.info("All download providers are on cooldown. Pausing downloads. Add a custom API in Settings or try again later.");
                         logger.info(`cooldown detected, pausing queue with ${remaining} track(s) remaining`);
                         updateBatchProgress(skippedCount + successCount + errorCount, total);
                         break;
@@ -997,7 +1005,7 @@ export function useDownload() {
                 }
                 if (isCooldownMessage(message)) {
                     const remaining = tracksToDownload.length - i - 1;
-                    toast.info("Servers on a scheduled break. Pausing downloads.");
+                    toast.info("All download providers are on cooldown. Pausing downloads. Add a custom API in Settings or try again later.");
                     logger.info(`cooldown detected, pausing queue with ${remaining} track(s) remaining`);
                     updateBatchProgress(skippedCount + successCount + errorCount, total);
                     break;
@@ -1221,7 +1229,7 @@ export function useDownload() {
                     setFailedTracks((prev) => new Set(prev).add(trackId));
                     if (isCooldownMessage(response.error)) {
                         const remaining = tracksToDownload.length - i - 1;
-                        toast.info(response.error || "Servers on a scheduled break. Pausing downloads.");
+                        toast.info("All download providers are on cooldown. Pausing downloads. Add a custom API in Settings or try again later.");
                         logger.info(`cooldown detected, pausing queue with ${remaining} track(s) remaining`);
                         updateBatchProgress(skippedCount + successCount + errorCount, total);
                         break;
@@ -1238,7 +1246,7 @@ export function useDownload() {
                 await MarkDownloadItemFailed(itemID, message);
                 if (isCooldownMessage(message)) {
                     const remaining = tracksToDownload.length - i - 1;
-                    toast.info("Servers on a scheduled break. Pausing downloads.");
+                    toast.info("All download providers are on cooldown. Pausing downloads. Add a custom API in Settings or try again later.");
                     logger.info(`cooldown detected, pausing queue with ${remaining} track(s) remaining`);
                     updateBatchProgress(skippedCount + successCount + errorCount, total);
                     break;

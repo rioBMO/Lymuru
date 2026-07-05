@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -89,9 +90,75 @@ type DownloadFFmpegResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// --- Dummy Stubs for SpotiFLAC React UI ---
+// --- Dummy Stubs for React UI compatibility ---
 func (a *App) CheckFFmpegInstalled() bool             { return true }
 func (a *App) DownloadFFmpeg() DownloadFFmpegResponse { return DownloadFFmpegResponse{Success: true} }
+
+// History stubs — return empty results until real SQLite history is wired.
+func (a *App) GetDownloadHistory() []backend.DownloadHistoryItem {
+	items, err := a.history.GetDownloadHistoryItems()
+	if err != nil {
+		return nil
+	}
+	return items
+}
+func (a *App) ClearDownloadHistory() error { return a.history.ClearDownloadHistory() }
+func (a *App) GetFetchHistory() []backend.FetchHistoryItem {
+	items, err := a.history.GetFetchHistoryItems()
+	if err != nil {
+		return nil
+	}
+	return items
+}
+func (a *App) DeleteDownloadHistoryItem(id string) error {
+	return a.history.DeleteDownloadHistoryItem(id)
+}
+func (a *App) DeleteFetchHistoryItem(id string) error { return a.history.DeleteFetchHistoryItem(id) }
+func (a *App) ClearFetchHistoryByType(type_ string) error {
+	return a.history.ClearFetchHistoryByType(type_)
+}
+
+// Lyrics Manager
+
+func (a *App) ReadEmbeddedLyrics(filePath string) (*backend.EmbeddedLyrics, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.ReadEmbeddedLyrics(filePath)
+}
+
+func (a *App) ExtractLyricsToLRC(filePath string, overwrite bool) (*backend.ExtractLyricsResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.ExtractLyricsToLRC(filePath, overwrite)
+}
+
+func (a *App) SelectLyricsFiles() ([]string, error) {
+	files, err := backend.SelectLyricsFiles(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func (a *App) SelectLyricsFolder() (string, error) {
+	return backend.SelectLyricsFolder(a.ctx)
+}
+
+func (a *App) ScanLyricsFolder(dir string) ([]string, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("folder path is required")
+	}
+	return backend.ScanLyricsFolder(dir)
+}
+
+func (a *App) SaveLyrics(filePath string, lyrics string) (*backend.SaveLyricsResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.SaveLyrics(filePath, lyrics)
+}
 
 // GetDefaults returns default settings values. The frontend uses the
 // downloadPath field when no path has been configured yet.
@@ -165,6 +232,8 @@ func (a *App) GetSettings() map[string]interface{} {
 			"export_lrc_file":          defaults.ExportLrcFile,
 			"ffmpeg_path":              defaults.FFmpegPath,
 			"audio_source":             defaults.AudioSource,
+			"customTidalApi":           "",
+			"customQobuzApi":           "",
 		}
 	}
 	return map[string]interface{}{
@@ -174,6 +243,8 @@ func (a *App) GetSettings() map[string]interface{} {
 		"export_lrc_file":          s.ExportLrcFile,
 		"ffmpeg_path":              s.FFmpegPath,
 		"audio_source":             s.AudioSource,
+		"customTidalApi":           s.CustomTidalAPI,
+		"customQobuzApi":           s.CustomQobuzAPI,
 	}
 }
 
@@ -198,6 +269,12 @@ func (a *App) SaveSettings(s map[string]interface{}) error {
 	}
 	if v, ok := s["audio_source"].(string); ok {
 		bs.AudioSource = v
+	}
+	if v, ok := s["customTidalApi"].(string); ok {
+		bs.CustomTidalAPI = v
+	}
+	if v, ok := s["customQobuzApi"].(string); ok {
+		bs.CustomQobuzAPI = v
 	}
 	if bs.DownloadsFolder != "" {
 		if err := backend.EnsureDownloadsFolder(bs.DownloadsFolder); err != nil {
@@ -375,4 +452,84 @@ func (a *App) CheckCustomTidalAPI(apiURL string) (bool, error) {
 // CheckCustomQobuzAPI verifies a custom Qobuz community API endpoint is reachable.
 func (a *App) CheckCustomQobuzAPI(apiURL string) (bool, error) {
 	return backend.SimpleHealthCheck(apiURL)
+}
+
+// ClearCommunityCooldown clears the global community API cooldown state.
+// Called by the frontend when a download succeeds during auto-fallback
+// to dismiss the cooldown banner.
+func (a *App) ClearCommunityCooldown() {
+	backend.ClearCommunityCooldown()
+}
+
+// ---------------------------------------------------------------------------
+// File Manager bindings
+// ---------------------------------------------------------------------------
+
+// ListDirectoryFiles returns the recursive contents of a directory.
+func (a *App) ListDirectoryFiles(dirPath string) ([]backend.FileInfo, error) {
+	if dirPath == "" {
+		return nil, fmt.Errorf("directory path is required")
+	}
+	return backend.ListDirectory(dirPath)
+}
+
+// ReadFileMetadata reads audio metadata (title, artist, album, etc.) from a file.
+func (a *App) ReadFileMetadata(filePath string) (*backend.AudioMetadata, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.ReadAudioMetadata(filePath)
+}
+
+// ReadTextFile reads a text file and returns its contents.
+func (a *App) ReadTextFile(filePath string) (string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// ReadImageAsBase64 reads an image file and returns a base64 data URI.
+func (a *App) ReadImageAsBase64(filePath string) (string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	var mimeType string
+	switch ext {
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
+	case ".gif":
+		mimeType = "image/gif"
+	case ".webp":
+		mimeType = "image/webp"
+	default:
+		mimeType = "image/jpeg"
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(content)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
+}
+
+// PreviewRenameFiles generates filename previews for a batch rename operation.
+func (a *App) PreviewRenameFiles(files []string, format string) []backend.RenamePreview {
+	return backend.PreviewRename(files, format)
+}
+
+// RenameFilesByMetadata executes a batch rename using audio metadata.
+func (a *App) RenameFilesByMetadata(files []string, format string) []backend.RenameResult {
+	return backend.RenameFiles(files, format)
+}
+
+// RenameFileTo renames a single file to the given new name (without extension).
+func (a *App) RenameFileTo(oldPath, newName string) error {
+	dir := filepath.Dir(oldPath)
+	ext := filepath.Ext(oldPath)
+	newPath := filepath.Join(dir, newName+ext)
+	return os.Rename(oldPath, newPath)
 }

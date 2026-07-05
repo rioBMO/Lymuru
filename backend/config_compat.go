@@ -98,6 +98,25 @@ func normalizeCustomTidalAPIValue(value interface{}) string {
 	return ""
 }
 
+// GetCustomQobuzAPISetting returns a custom Qobuz API URL if configured.
+func GetCustomQobuzAPISetting() string {
+	settings, err := LoadConfigSettings()
+	if err != nil || settings == nil {
+		return ""
+	}
+
+	return normalizeCustomQobuzAPIValue(settings["customQobuzApi"])
+}
+
+func normalizeCustomQobuzAPIValue(value interface{}) string {
+	customAPI, _ := value.(string)
+	customAPI = strings.TrimRight(strings.TrimSpace(customAPI), "/")
+	if strings.HasPrefix(customAPI, "https://") {
+		return customAPI
+	}
+	return ""
+}
+
 // GetExistingFileCheckModeSetting returns how to check for existing files.
 func GetExistingFileCheckModeSetting() string {
 	settings, err := LoadConfigSettings()

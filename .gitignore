@@ -19,6 +19,7 @@ frontend/wailsjs/
 # Wails build artifacts
 build/
 bin/
+frontend/dist/
 *.exe
 *.app
 *.dmg

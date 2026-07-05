@@ -44,10 +44,11 @@ var (
 	rateLimitUntilMs int64
 	rateLimitLock    sync.RWMutex
 
-	cooldownUntilMs int64
-	cooldownMessage string
-	cooldownEventID int64
-	cooldownLock    sync.RWMutex
+	cooldownUntilMs  int64
+	cooldownMessage  string
+	cooldownEventID  int64
+	cooldownProvider string
+	cooldownLock     sync.RWMutex
 
 	downloadQueue       []DownloadItem
 	downloadQueueLock   sync.RWMutex
@@ -60,15 +61,17 @@ var (
 )
 
 type ProgressInfo struct {
-	IsDownloading   bool    `json:"is_downloading"`
-	MBDownloaded    float64 `json:"mb_downloaded"`
-	SpeedMBps       float64 `json:"speed_mbps"`
-	RateLimited     bool    `json:"rate_limited"`
-	RateLimitSecs   int     `json:"rate_limit_secs"`
-	Cooldown        bool    `json:"cooldown"`
-	CooldownSecs    int     `json:"cooldown_secs"`
-	CooldownMessage string  `json:"cooldown_message"`
-	CooldownEventID int64   `json:"cooldown_event_id"`
+	IsDownloading    bool    `json:"is_downloading"`
+	MBDownloaded     float64 `json:"mb_downloaded"`
+	SpeedMBps        float64 `json:"speed_mbps"`
+	RateLimited      bool    `json:"rate_limited"`
+	RateLimitSecs    int     `json:"rate_limit_secs"`
+	Cooldown         bool    `json:"cooldown"`
+	CooldownSecs     int     `json:"cooldown_secs"`
+	CooldownMessage  string  `json:"cooldown_message"`
+	CooldownEventID  int64   `json:"cooldown_event_id"`
+	CooldownProvider string  `json:"cooldown_provider"`
+	CooldownUntil    int64   `json:"cooldown_until"`
 }
 
 type DownloadQueueInfo struct {
@@ -114,6 +117,7 @@ func GetDownloadProgress() ProgressInfo {
 	cdUntilMs := cooldownUntilMs
 	cdMessage := cooldownMessage
 	cdEventID := cooldownEventID
+	cdProvider := cooldownProvider
 	cooldownLock.RUnlock()
 
 	cooldown := false
@@ -125,19 +129,22 @@ func GetDownloadProgress() ProgressInfo {
 			cooldownSecs = int((remainingMs + 999) / 1000)
 		} else {
 			cdMessage = ""
+			cdProvider = ""
 		}
 	}
 
 	return ProgressInfo{
-		IsDownloading:   downloading,
-		MBDownloaded:    progress,
-		SpeedMBps:       speed,
-		RateLimited:     rateLimited,
-		RateLimitSecs:   rateLimitSecs,
-		Cooldown:        cooldown,
-		CooldownSecs:    cooldownSecs,
-		CooldownMessage: cdMessage,
-		CooldownEventID: cdEventID,
+		IsDownloading:    downloading,
+		MBDownloaded:     progress,
+		SpeedMBps:        speed,
+		RateLimited:      rateLimited,
+		RateLimitSecs:    rateLimitSecs,
+		Cooldown:         cooldown,
+		CooldownSecs:     cooldownSecs,
+		CooldownMessage:  cdMessage,
+		CooldownEventID:  cdEventID,
+		CooldownProvider: cdProvider,
+		CooldownUntil:    cdUntilMs,
 	}
 }
 
@@ -157,14 +164,16 @@ func ClearRateLimitCooldown() {
 	rateLimitLock.Unlock()
 }
 
-func SetCommunityCooldown(seconds float64, message string) {
+func SetCommunityCooldown(provider string, seconds float64, message string) {
 	cooldownLock.Lock()
 	if seconds <= 0 {
 		cooldownUntilMs = 0
 		cooldownMessage = ""
+		cooldownProvider = ""
 	} else {
 		cooldownUntilMs = getCurrentTimeMillis() + int64(seconds*1000)
 		cooldownMessage = message
+		cooldownProvider = provider
 		cooldownEventID++
 	}
 	cooldownLock.Unlock()
@@ -174,6 +183,7 @@ func ClearCommunityCooldown() {
 	cooldownLock.Lock()
 	cooldownUntilMs = 0
 	cooldownMessage = ""
+	cooldownProvider = ""
 	cooldownLock.Unlock()
 }
 

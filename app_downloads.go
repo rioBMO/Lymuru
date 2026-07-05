@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lymuru/lymuru/backend"
 )
@@ -112,6 +113,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		if tidalAPI == "" {
 			tidalAPI = getDefaultTidalAPI()
 		}
+		fmt.Printf("Using Tidal API: %s\n", tidalAPI)
 		td := backend.NewTidalDownloader(tidalAPI)
 		filename, err = td.Download(
 			req.SpotifyID, req.OutputDir, req.AudioFormat, req.FilenameFormat,
@@ -154,8 +156,13 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 
 		qd := backend.NewQobuzDownloader()
-		if req.QobuzAPIURL != "" {
-			qd.SetCustomAPIURL(req.QobuzAPIURL)
+		qobuzAPI := req.QobuzAPIURL
+		if qobuzAPI == "" {
+			qobuzAPI = backend.GetCustomQobuzAPISetting()
+		}
+		if qobuzAPI != "" {
+			fmt.Printf("Using custom Qobuz API: %s\n", qobuzAPI)
+			qd.SetCustomAPIURL(qobuzAPI)
 		}
 		filename, err = qd.DownloadTrack(
 			req.SpotifyID, req.OutputDir, req.AudioFormat, req.FilenameFormat,
@@ -202,6 +209,23 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 			SourceURL:   sourceURL,
 			SourceLabel: sourceLabel,
 		}, err
+	}
+
+	// Record successful download in history.
+	if a.history != nil {
+		now := time.Now().Unix()
+		_ = a.history.AddDownloadHistoryItem(backend.DownloadHistoryItem{
+			ID:        fmt.Sprintf("%s-%d", req.SpotifyID, now),
+			SpotifyID: req.SpotifyID,
+			Title:     req.TrackName,
+			Artists:   req.ArtistName,
+			Album:     req.AlbumName,
+			CoverURL:  req.CoverURL,
+			Format:    req.AudioFormat,
+			Path:      filename,
+			Source:    sourceLabel,
+			Timestamp: now,
+		})
 	}
 
 	return DownloadResponse{
@@ -275,21 +299,93 @@ func (a *App) ExportFailedDownloads() (string, error) {
 }
 
 // ---------------------------------------------------------------------------
-// File existence / utility stubs (used by SpotiFLAC frontend)
+// File existence / utility
 // ---------------------------------------------------------------------------
 
 // CheckFilesExistence checks if files matching the given track metadata
-// already exist on disk. Stub: always returns empty (no existing files).
+// already exist on disk by constructing the expected filename and checking
+// with os.Stat. Supports filename-format tokens and audio format extensions.
 func (a *App) CheckFilesExistence(outputDir, rootDir string, tracks []CheckFileExistenceRequest) []CheckFileExistenceResult {
+	if len(tracks) == 0 {
+		return nil
+	}
+
+	outputDir = backend.NormalizePath(outputDir)
+
+	const defaultFilenameFormat = "title-artist"
+
 	results := make([]CheckFileExistenceResult, 0, len(tracks))
 	for _, t := range tracks {
-		results = append(results, CheckFileExistenceResult{
+		res := CheckFileExistenceResult{
 			SpotifyID:  t.SpotifyID,
-			Exists:     false,
 			TrackName:  t.TrackName,
 			ArtistName: t.ArtistName,
-		})
+			Exists:     false,
+		}
+
+		if strings.TrimSpace(t.TrackName) == "" || strings.TrimSpace(t.ArtistName) == "" {
+			results = append(results, res)
+			continue
+		}
+
+		// Resolve filename format with tokens.
+		filenameFormat := t.FilenameFormat
+		if filenameFormat == "" {
+			filenameFormat = defaultFilenameFormat
+		}
+		if strings.Contains(filenameFormat, "{") {
+			artistsForTokens := t.Artists
+			if strings.TrimSpace(artistsForTokens) == "" {
+				artistsForTokens = t.ArtistName
+			}
+			filenameFormat = backend.ApplyExtraFilenameTokens(filenameFormat, artistsForTokens, t.TotalTracks, t.TotalDiscs)
+			filenameFormat = backend.ApplyFilenameContextTokens(filenameFormat, t.Category, "", "", t.UPC)
+		}
+
+		// Determine the file extension.
+		fileExt := ".flac"
+		switch strings.ToLower(strings.TrimSpace(t.AudioFormat)) {
+		case "mp3":
+			fileExt = ".mp3"
+		case "m4a", "m4a-aac", "m4a-alac", "alac", "atmos", "apple":
+			fileExt = ".m4a"
+		}
+
+		trackNumber := t.Position
+		if t.UseAlbumTrackNumber && t.TrackNumber > 0 {
+			trackNumber = t.TrackNumber
+		}
+
+		expectedFilename := backend.BuildExpectedFilename(
+			t.TrackName,
+			t.ArtistName,
+			t.AlbumName,
+			t.AlbumArtist,
+			t.ReleaseDate,
+			filenameFormat,
+			"", "",
+			t.IncludeTrackNumber,
+			trackNumber,
+			t.DiscNumber,
+			t.UseAlbumTrackNumber,
+		)
+		expectedFilename = strings.TrimSuffix(expectedFilename, ".flac") + fileExt
+
+		targetDir := outputDir
+		if strings.TrimSpace(t.RelativePath) != "" {
+			targetDir = filepath.Join(outputDir, t.RelativePath)
+		}
+
+		expectedPath := filepath.Join(targetDir, expectedFilename)
+
+		if info, err := os.Stat(expectedPath); err == nil && info.Size() > 100*1024 {
+			res.Exists = true
+			res.FilePath = expectedPath
+		}
+
+		results = append(results, res)
 	}
+
 	return results
 }
 

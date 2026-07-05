@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lymuru/lymuru/backend"
@@ -18,12 +19,10 @@ type SpotifyMetadataRequest struct {
 	Separator string  `json:"separator,omitempty"`
 }
 
-
 type SpotifySearchRequest struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit"`
 }
-
 
 type SpotifySearchByTypeRequest struct {
 	Query      string `json:"query"`
@@ -31,7 +30,6 @@ type SpotifySearchByTypeRequest struct {
 	Limit      int    `json:"limit"`
 	Offset     int    `json:"offset"`
 }
-
 
 type CheckFileExistenceRequest struct {
 	SpotifyID           string `json:"spotify_id"`
@@ -56,7 +54,6 @@ type CheckFileExistenceRequest struct {
 	RelativePath        string `json:"relative_path,omitempty"`
 }
 
-
 type CheckFileExistenceResult struct {
 	SpotifyID  string `json:"spotify_id"`
 	Exists     bool   `json:"exists"`
@@ -64,7 +61,6 @@ type CheckFileExistenceResult struct {
 	TrackName  string `json:"track_name,omitempty"`
 	ArtistName string `json:"artist_name,omitempty"`
 }
-
 
 func (a *App) GetSpotifyMetadata(req SpotifyMetadataRequest) (string, error) {
 	if req.URL == "" {
@@ -98,9 +94,38 @@ func (a *App) GetSpotifyMetadata(req SpotifyMetadataRequest) (string, error) {
 		return "", fmt.Errorf("failed to encode response: %v", err)
 	}
 
+	// Record fetch in history.
+	if a.history != nil {
+		historyType := parseSpotifyURLType(req.URL)
+		_ = a.history.AddFetchHistoryItem(backend.FetchHistoryItem{
+			ID:        fmt.Sprintf("%s-%d", req.URL, time.Now().Unix()),
+			URL:       req.URL,
+			Type:      historyType,
+			Name:      req.URL,
+			Timestamp: time.Now().Unix(),
+		})
+	}
+
 	return string(jsonData), nil
 }
 
+// parseSpotifyURLType extracts the entity type from a Spotify URL.
+func parseSpotifyURLType(rawURL string) string {
+	u := strings.ToLower(rawURL)
+	if strings.Contains(u, "/track/") {
+		return "track"
+	}
+	if strings.Contains(u, "/album/") {
+		return "album"
+	}
+	if strings.Contains(u, "/playlist/") {
+		return "playlist"
+	}
+	if strings.Contains(u, "/artist/") {
+		return "artist"
+	}
+	return "unknown"
+}
 
 func (a *App) SearchSpotify(req SpotifySearchRequest) (*backend.SearchResponse, error) {
 	if req.Query == "" {
@@ -116,7 +141,6 @@ func (a *App) SearchSpotify(req SpotifySearchRequest) (*backend.SearchResponse, 
 
 	return backend.SearchSpotify(ctx, req.Query, req.Limit)
 }
-
 
 func (a *App) SearchSpotifyByType(req SpotifySearchByTypeRequest) ([]backend.SearchResult, error) {
 	if req.Query == "" {
@@ -137,21 +161,17 @@ func (a *App) SearchSpotifyByType(req SpotifySearchByTypeRequest) ([]backend.Sea
 	return backend.SearchSpotifyByType(ctx, req.Query, req.SearchType, req.Limit, req.Offset)
 }
 
-
 func (a *App) GetTrackISRC(spotifyTrackID string) string {
 	return backend.ResolveTrackISRC(spotifyTrackID)
 }
-
 
 func (a *App) GetPreviewURL(trackID string) (string, error) {
 	return backend.GetPreviewURL(trackID)
 }
 
-
 func (a *App) SkipDownloadItem(itemID, filePath string) {
 	backend.SkipDownloadItem(itemID, filePath)
 }
-
 
 func (a *App) GetRecentFetches() (string, error) {
 	data, err := backend.LoadRecentFetches()
