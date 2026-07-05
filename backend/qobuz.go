@@ -733,7 +733,7 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 		Publisher:   spotifyPublisher,
 		Composer:    spotifyComposer,
 		Separator:   metadataSeparator,
-		Description: "https://github.com/spotbye/SpotiFLAC",
+		Description: "https://github.com/rioBMO/Lymuru",
 		ISRC:        isrc,
 		UPC:         upc,
 		Genre:       mbMeta.Genre,

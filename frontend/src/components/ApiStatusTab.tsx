@@ -40,7 +40,7 @@ export function ApiStatusTab() {
     return (<div className="space-y-6">
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold tracking-tight">SpotiFLAC</h3>
+           <h3 className="text-sm font-semibold tracking-tight">Lymuru</h3>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => openExternal("https://spotbye.qzz.io")} className="gap-2">
               <Server className="h-4 w-4"/>
@@ -72,7 +72,7 @@ export function ApiStatusTab() {
       <div className="border-t"/>
 
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold tracking-tight">SpotiFLAC Next</h3>
+         <h3 className="text-sm font-semibold tracking-tight">Providers</h3>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
           {SPOTIFLAC_NEXT_SOURCES.map((source) => {

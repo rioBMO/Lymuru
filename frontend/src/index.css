@@ -3,6 +3,51 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Fallback theme tokens so the UI isn't a black screen if JS hasn't run yet. */
+:root {
+  --background: #FFFFFF;
+  --foreground: #0C1A2E;
+  --card: #FFFFFF;
+  --card-foreground: #0C1A2E;
+  --popover: #FFFFFF;
+  --popover-foreground: #0C1A2E;
+  --primary: #4FC3F7;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F0F9FF;
+  --secondary-foreground: #0C1A2E;
+  --muted: #F0F4F8;
+  --muted-foreground: #6B7B8C;
+  --accent: #E0F5FE;
+  --accent-foreground: #0C1A2E;
+  --destructive: #E53935;
+  --destructive-foreground: #FFFFFF;
+  --border: #E0E8F0;
+  --input: #E0E8F0;
+  --ring: #4FC3F7;
+  --radius: 0.625rem;
+  --primary-dark: #0288D1;
+  --primary-glow: rgba(79, 195, 247, 0.25);
+  --primary-gradient: linear-gradient(135deg, #4FC3F7 0%, #0288D1 100%);
+  --bg: #FFFFFF;
+  --bg-soft: #F0F4F8;
+  --bg-card: #FFFFFF;
+  --text: #0C1A2E;
+  --text-secondary: #6B7B8C;
+  --text-muted: #8899AA;
+  --border-light: #F0F4F8;
+  --destructive-light: #FFF0F0;
+  --success: #43A047;
+  --success-light: #F0FFF0;
+  --radius-sm: calc(0.625rem - 4px);
+  --radius-md: calc(0.625rem - 2px);
+  --radius-lg: 0.625rem;
+  --radius-xl: calc(0.625rem + 4px);
+  --shadow-sm: 0 1px 3px rgba(12,26,46,0.06);
+  --shadow-md: 0 4px 12px rgba(12,26,46,0.08);
+  --shadow-lg: 0 8px 24px rgba(12,26,46,0.10);
+  --shadow-glow: 0 0 20px rgba(79,195,247,0.15);
+}
+
 @theme inline {
   --font-sans: "DM Sans", system-ui, -apple-system, sans-serif;
 

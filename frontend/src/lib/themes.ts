@@ -148,20 +148,38 @@ export function getTheme(): ThemeTokens {
   return _current;
 }
 
-export function applyTheme(mode: "light" | "dark"): void {
-  const tokens = mode === "dark" ? dark : light;
+export function applyTheme(modeOrTheme: string): void {
+  // If the string matches a named theme in the themes array, apply that theme's
+  // CSS variables for the current light/dark mode.
+  const namedTheme = themes.find((t) => t.name === modeOrTheme);
+  if (namedTheme) {
+    const isDark = document.documentElement.classList.contains("dark");
+    const vars = isDark ? namedTheme.cssVars.dark : namedTheme.cssVars.light;
+    for (const [key, value] of Object.entries(vars)) {
+      document.documentElement.style.setProperty(`--${key}`, value);
+    }
+    try {
+      localStorage.setItem("lymuru_theme", modeOrTheme);
+    } catch {
+      /* noop */
+    }
+    return;
+  }
+
+  // Backward-compatible: treat as light/dark mode toggle.
+  const tokens = modeOrTheme === "dark" ? dark : light;
   _current = tokens;
   const root = document.documentElement;
   for (const [key, value] of Object.entries(tokens)) {
     root.style.setProperty(`--${key}`, value);
   }
-  if (mode === "dark") {
+  if (modeOrTheme === "dark") {
     root.classList.add("dark");
   } else {
     root.classList.remove("dark");
   }
   try {
-    localStorage.setItem("lymuru_theme", mode);
+    localStorage.setItem("lymuru_theme", modeOrTheme);
   } catch {
     /* noop */
   }
@@ -170,8 +188,33 @@ export function applyTheme(mode: "light" | "dark"): void {
 export function initTheme(): void {
   try {
     const saved = localStorage.getItem("lymuru_theme");
-    applyTheme(saved === "dark" ? "dark" : "light");
+    applyTheme(saved || "light");
   } catch {
     applyTheme("light");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Named themes array — used by the SpotiFLAC settings page's accent selector.
+// Lymuru ships with a single cyan/blue theme; more can be added here.
+// ---------------------------------------------------------------------------
+
+export interface Theme {
+  name: string;
+  label: string;
+  cssVars: {
+    light: Record<string, string>;
+    dark: Record<string, string>;
+  };
+}
+
+export const themes: Theme[] = [
+  {
+    name: "cyan",
+    label: "Cyan",
+    cssVars: {
+      light: light as unknown as Record<string, string>,
+      dark: dark as unknown as Record<string, string>,
+    },
+  },
+];

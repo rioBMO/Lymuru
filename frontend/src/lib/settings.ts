@@ -318,10 +318,10 @@ export const FONT_OPTIONS: FontOption[] = [
     },
 ];
 const BUILT_IN_FONT_VALUES = new Set(FONT_OPTIONS.map((font) => font.value));
-const GOOGLE_FONT_LINK_ID_PREFIX = "spotiflac-custom-font-";
+const GOOGLE_FONT_LINK_ID_PREFIX = "lymuru-custom-font-";
 const GOOGLE_FONTS_CSS_HOST = "fonts.googleapis.com";
 const GOOGLE_FONTS_SPECIMEN_HOST = "fonts.google.com";
-const SETTINGS_KEY = "spotiflac-settings";
+const SETTINGS_KEY = "lymuru-settings";
 let cachedSettings: Settings | null = null;
 type SettingsPayload = Partial<Settings> & {
     darkMode?: boolean;

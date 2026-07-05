@@ -1,10 +1,7 @@
 export function usePreview() {
     return {
-        previewId: null,
-        isPlaying: false,
-        togglePreview: (id: string, url: string) => {},
-        pausePreview: () => {},
-        volume: 0.5,
-        setVolume: (v: number) => {}
+        playPreview: (_trackId: string, _trackName: string) => {},
+        loadingPreview: null as string | null,
+        playingTrack: null as string | null,
     };
 }

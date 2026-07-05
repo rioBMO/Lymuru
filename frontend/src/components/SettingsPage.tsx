@@ -76,7 +76,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     }, [tempSettings.themeMode, tempSettings.theme, tempSettings.fontFamily, tempSettings.customFonts]);
     useEffect(() => {
         if (showAddFontDialog && parsedAddFont) {
-            loadGoogleFontUrl(parsedAddFont.url, "spotiflac-add-font-preview");
+            loadGoogleFontUrl(parsedAddFont.url, "lymuru-add-font-preview");
         }
     }, [showAddFontDialog, parsedAddFont]);
     useEffect(() => {

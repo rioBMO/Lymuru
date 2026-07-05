@@ -1,12 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, FolderOpen, CheckCircle, XCircle, FileText, FileCheck, ImageDown, Play, Pause } from "lucide-react";
+import { Download, FolderOpen, CheckCircle, XCircle, FileText, FileCheck, ImageDown, Play, Pause, Globe } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import type { TrackMetadata, TrackAvailability } from "@/types/api";
 import { usePreview } from "@/hooks/usePreview";
-import { TrackMenu } from "./TrackMenu";
 import { buildClickableArtists, getClickableArtistKey } from "@/lib/artist-links";
+import { AvailabilityLinks, hasAvailabilityLinks } from "./AvailabilityLinks";
 interface TrackInfoProps {
     track: TrackMetadata & {
         album_name: string;

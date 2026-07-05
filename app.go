@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"errors"
-	"strings"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/lymuru/lymuru/backend"
@@ -83,25 +83,40 @@ type SidecarTaskResponse struct {
 	TaskID string `json:"task_id"`
 }
 
-
+// DownloadFFmpegResponse is returned by the DownloadFFmpeg binding.
+type DownloadFFmpegResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
 
 // --- Dummy Stubs for SpotiFLAC React UI ---
-func (a *App) CheckFFmpegInstalled() bool { return true }
-func (a *App) DownloadFFmpeg() error { return nil }
-func (a *App) GetDefaults() map[string]interface{} { return nil }
-func (a *App) LoadFonts() map[string]interface{} { return nil }
+func (a *App) CheckFFmpegInstalled() bool             { return true }
+func (a *App) DownloadFFmpeg() DownloadFFmpegResponse { return DownloadFFmpegResponse{Success: true} }
+
+// GetDefaults returns default settings values. The frontend uses the
+// downloadPath field when no path has been configured yet.
+func (a *App) GetDefaults() map[string]interface{} {
+	return map[string]interface{}{
+		"downloadPath": backend.DefaultSettings().DownloadsFolder,
+	}
+}
+
+// LoadSettings returns settings from persistent storage (stub — the frontend
+// falls back to localStorage for real persistence).
 func (a *App) LoadSettings() map[string]interface{} { return nil }
-func (a *App) SaveFonts(f map[string]interface{}) error { return nil }
+
+// LoadFonts returns custom font definitions (stub).
+func (a *App) LoadFonts() []map[string]interface{} { return nil }
+
+// SaveFonts persists custom font definitions (stub).
+func (a *App) SaveFonts(f []map[string]interface{}) error { return nil }
+
 // ------------------------------------------
 
 // GetVersion returns the app version.
 func (a *App) GetVersion() string {
 	return backend.AppVersion()
 }
-
-
-
-
 
 // GetTask returns a snapshot of a task by id.
 func (a *App) GetTask(taskID string) (backend.Task, error) {
@@ -138,17 +153,58 @@ func (a *App) ClearHistory() error {
 	return a.history.Clear()
 }
 
-// GetSettings returns the current settings.
-func (a *App) GetSettings() (backend.Settings, error) {
-	return a.config.Load()
+// GetSettings returns the current settings as a map.
+func (a *App) GetSettings() map[string]interface{} {
+	s, err := a.config.Load()
+	if err != nil {
+		defaults := backend.DefaultSettings()
+		return map[string]interface{}{
+			"theme_mode":               defaults.ThemeMode,
+			"downloads_folder":         defaults.DownloadsFolder,
+			"has_completed_onboarding": defaults.HasCompletedOnboarding,
+			"export_lrc_file":          defaults.ExportLrcFile,
+			"ffmpeg_path":              defaults.FFmpegPath,
+			"audio_source":             defaults.AudioSource,
+		}
+	}
+	return map[string]interface{}{
+		"theme_mode":               s.ThemeMode,
+		"downloads_folder":         s.DownloadsFolder,
+		"has_completed_onboarding": s.HasCompletedOnboarding,
+		"export_lrc_file":          s.ExportLrcFile,
+		"ffmpeg_path":              s.FFmpegPath,
+		"audio_source":             s.AudioSource,
+	}
 }
 
-// SaveSettings persists settings.
-func (a *App) SaveSettings(s backend.Settings) error {
-	if err := backend.EnsureDownloadsFolder(s.DownloadsFolder); err != nil {
-		return err
+// SaveSettings persists settings from a map (SpoitFLAC-compatible).
+// Falls back to the simple backend config when possible.
+func (a *App) SaveSettings(s map[string]interface{}) error {
+	var bs backend.Settings
+	if v, ok := s["downloads_folder"].(string); ok && v != "" {
+		bs.DownloadsFolder = v
 	}
-	return a.config.Save(s)
+	if v, ok := s["theme_mode"].(string); ok {
+		bs.ThemeMode = v
+	}
+	if v, ok := s["has_completed_onboarding"].(bool); ok {
+		bs.HasCompletedOnboarding = v
+	}
+	if v, ok := s["export_lrc_file"].(bool); ok {
+		bs.ExportLrcFile = v
+	}
+	if v, ok := s["ffmpeg_path"].(string); ok {
+		bs.FFmpegPath = v
+	}
+	if v, ok := s["audio_source"].(string); ok {
+		bs.AudioSource = v
+	}
+	if bs.DownloadsFolder != "" {
+		if err := backend.EnsureDownloadsFolder(bs.DownloadsFolder); err != nil {
+			return err
+		}
+	}
+	return a.config.Save(bs)
 }
 
 // AddLyrics searches and embeds lyrics directly.
@@ -198,7 +254,7 @@ func (a *App) RomanizeLrc(lrcPath string) (RomanizeResult, error) {
 	if !changed {
 		return RomanizeResult{Message: "No CJK lyrics found for romanization"}, nil
 	}
-	
+
 	outPath := strings.TrimSuffix(lrcPath, ".lrc") + "_rom.lrc"
 	if err := os.WriteFile(outPath, []byte(romanized), 0644); err != nil {
 		return RomanizeResult{}, err
@@ -233,8 +289,6 @@ func (a *App) ExtractLrc(flacPath string) (ExtractResult, error) {
 		OutputURL: outPath,
 	}, nil
 }
-
-
 
 // GetDownloadsPath returns the configured downloads folder.
 func (a *App) GetDownloadsPath() string {
@@ -297,3 +351,28 @@ func (a *App) PickFolder() (string, error) {
 	})
 }
 
+// SelectFolder opens a native folder dialog with a default path (SpoitFLAC settings page).
+func (a *App) SelectFolder(defaultPath string) (string, error) {
+	return backend.SelectFolderDialog(a.ctx, defaultPath)
+}
+
+// OpenConfigFolder opens the Lymuru data/config directory in the OS file explorer.
+func (a *App) OpenConfigFolder() error {
+	// Open the data directory where lymuru.db and config live.
+	cwd, _ := os.Getwd()
+	configDir := filepath.Join(cwd, "data")
+	if _, err := os.Stat(configDir); err != nil {
+		_ = os.MkdirAll(configDir, 0o755)
+	}
+	return a.OpenFolder(configDir)
+}
+
+// CheckCustomTidalAPI verifies a custom Tidal community API endpoint is reachable.
+func (a *App) CheckCustomTidalAPI(apiURL string) (bool, error) {
+	return backend.SimpleHealthCheck(apiURL)
+}
+
+// CheckCustomQobuzAPI verifies a custom Qobuz community API endpoint is reachable.
+func (a *App) CheckCustomQobuzAPI(apiURL string) (bool, error) {
+	return backend.SimpleHealthCheck(apiURL)
+}

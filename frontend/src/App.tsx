@@ -12,6 +12,7 @@ import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { TitleBar } from "@/components/TitleBar";
 import { Sidebar, type PageType } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MarkdownLite, extractMarkdownSection } from "@/components/MarkdownLite";
 import { SearchBar } from "@/components/SearchBar";
 import { TrackInfo } from "@/components/TrackInfo";
@@ -23,16 +24,19 @@ import { DownloadProgressToast } from "@/components/DownloadProgressToast";
 import { CooldownBanner } from "@/components/CooldownBanner";
 import { FileManagerPage } from "@/components/pages/FileManagerPage";
 import { LyricsManagerPage } from "@/components/pages/LyricsManagerPage";
-import { SettingsPage } from "@/components/pages/SettingsPage";
+import { SettingsPage } from "@/components/SettingsPage";
 import { HistoryPage } from "@/components/pages/HistoryPage";
 import type { HistoryItem } from "@/components/FetchHistory";
 import { useDownload } from "@/hooks/useDownload";
 import { useMetadata } from "@/hooks/useMetadata";
+import { useLyrics } from "@/hooks/useLyrics";
+import { useCover } from "@/hooks/useCover";
+import { useAvailability } from "@/hooks/useAvailability";
 import { ensureApiStatusCheckStarted } from "@/lib/api-status";
 import { useDownloadQueueDialog } from "@/hooks/useDownloadQueueDialog";
 import { useDownloadProgress } from "@/hooks/useDownloadProgress";
 import { buildPlaylistFolderName } from "@/lib/playlist";
-const HISTORY_KEY = "spotiflac_fetch_history";
+const HISTORY_KEY = "lymuru_fetch_history";
 const MAX_HISTORY = 5;
 function extractSpotifyEntityFromURL(url: string): {
     type: string;
@@ -146,6 +150,9 @@ function App() {
     const CURRENT_VERSION = __APP_VERSION__;
     const download = useDownload();
     const metadata = useMetadata();
+    const lyrics = useLyrics();
+    const cover = useCover();
+    const availability = useAvailability();
     const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
     const downloadQueue = useDownloadQueueDialog();
     const downloadProgress = useDownloadProgress();
@@ -233,7 +240,7 @@ function App() {
     }, [metadata.metadata]);
     const checkForUpdates = async () => {
         try {
-            const response = await fetch("https://api.github.com/repos/spotbye/SpotiFLAC/releases/latest");
+            const response = await fetch("https://api.github.com/repos/rioBMO/Lymuru/releases/latest");
             const data = await response.json();
             const rawTag = data.tag_name || "";
             const latestVersion = rawTag.replace(/^v/, "") || "";
@@ -245,9 +252,9 @@ function App() {
                 setUpdateInfo({
                     version: latestVersion,
                     changelog: extractMarkdownSection(data.body || "", "Changelog"),
-                    url: `https://github.com/spotbye/SpotiFLAC/releases/tag/${rawTag}`,
+                    url: `https://github.com/rioBMO/Lymuru/releases/tag/${rawTag}`,
                 });
-                const dismissedVersion = localStorage.getItem("spotiflac_update_dismissed_version");
+                const dismissedVersion = localStorage.getItem("lymuru_update_dismissed_version");
                 if (dismissedVersion !== latestVersion) {
                     setShowUpdateDialog(true);
                 }
@@ -546,23 +553,11 @@ function App() {
         switch (currentPage) {
             case "settings":
                 return <SettingsPage onUnsavedChangesChange={setHasUnsavedSettings} onResetRequest={setResetSettingsFn}/>;
-            case "debug":
-                return <DebugLoggerPage />;
-            case "projects":
-                return <OtherProjects />;
-            case "support":
-                return <SupportPage />;
             case "history":
                 return <HistoryPage onHistorySelect={(cachedData) => {
                         metadata.loadFromCache(cachedData);
                         setCurrentPage("main");
                     }}/>;
-            case "audio-analysis":
-                return <AudioAnalysisPage />;
-            case "audio-converter":
-                return <AudioConverterPage />;
-            case "audio-resampler":
-                return <AudioResamplerPage />;
             case "file-manager":
                 return <FileManagerPage />;
             case "lyrics-manager":
@@ -621,8 +616,10 @@ function App() {
                 </>);
         }
     };
-    return (<TooltipProvider>
-        <div className="h-screen overflow-hidden bg-background">
+    return (
+        <ErrorBoundary>
+            <TooltipProvider>
+                <div className="h-screen overflow-hidden bg-background">
             <TitleBar />
             <Sidebar currentPage={currentPage} onPageChange={handlePageChange}/>
 
@@ -663,7 +660,7 @@ function App() {
                 <DialogFooter className="gap-2 sm:justify-between">
                   <Button variant="ghost" onClick={() => {
             if (updateInfo) {
-                localStorage.setItem("spotiflac_update_dismissed_version", updateInfo.version);
+                localStorage.setItem("lymuru_update_dismissed_version", updateInfo.version);
             }
             setShowUpdateDialog(false);
         }}>
@@ -740,7 +737,7 @@ function App() {
                             FFmpeg Required
                         </DialogTitle>
                         <DialogDescription className="text-sm text-foreground/70 leading-relaxed font-normal">
-                            SpotiFLAC checks your system for FFmpeg and FFprobe first.
+                            Lymuru checks your system for FFmpeg and FFprobe first.
                             If they are not available, the required binaries will be downloaded from GitHub.
                             This setup downloads about <span className="text-foreground font-semibold">30-40MB</span> of data.
                         </DialogDescription>
@@ -781,6 +778,8 @@ function App() {
                 </DialogContent>
             </Dialog>
         </div>
-    </TooltipProvider>);
+    </TooltipProvider>
+        </ErrorBoundary>
+    );
 }
 export default App;

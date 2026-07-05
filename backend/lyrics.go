@@ -337,7 +337,7 @@ func (c *LyricsClient) ConvertToLRC(lyrics *LyricsResponse, trackName, artistNam
 
 	sb.WriteString(fmt.Sprintf("[ti:%s]\n", trackName))
 	sb.WriteString(fmt.Sprintf("[ar:%s]\n", artistName))
-	sb.WriteString("[by:SpotiFlac]\n")
+	sb.WriteString("[by:Lymuru]\n")
 	sb.WriteString("\n")
 
 	for _, line := range lyrics.Lines {
@@ -372,7 +372,7 @@ func msToLRCTimestamp(msStr string) string {
 // SearchLRCLIB fetches lyrics for the given artist and title.
 func SearchLRCLIB(artist, title string) (lyrics string, synced bool, err error) {
 	client := NewLyricsClient()
-	
+
 	resp, src, err := client.FetchLyricsAllSources("", title, artist, "", 0)
 	if err != nil {
 		return "", false, err
@@ -382,7 +382,7 @@ func SearchLRCLIB(artist, title string) (lyrics string, synced bool, err error) 
 	}
 
 	isSyncedResult := isSynced(resp)
-	
+
 	var sb strings.Builder
 	for _, line := range resp.Lines {
 		if line.Words == "" {
@@ -395,7 +395,7 @@ func SearchLRCLIB(artist, title string) (lyrics string, synced bool, err error) 
 			sb.WriteString(fmt.Sprintf("%s%s\n", timestamp, line.Words))
 		}
 	}
-	
+
 	fmt.Printf("[SearchLRCLIB] Lyrics found from source: %s, Synced: %v\n", src, isSyncedResult)
 	return sb.String(), isSyncedResult, nil
 }
@@ -406,13 +406,11 @@ func EmbedLyrics(filePath string, lyrics string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read existing tags: %v", err)
 	}
-	
+
 	tags[taglib.Lyrics] = []string{lyrics}
-	
+
 	if err := taglib.WriteTags(filePath, tags, taglib.Clear); err != nil {
 		return fmt.Errorf("failed to write tags with lyrics: %v", err)
 	}
 	return nil
 }
-
-
