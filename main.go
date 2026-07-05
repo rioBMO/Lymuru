@@ -32,6 +32,11 @@ func main() {
 	}
 	app.SetStorage(db)
 
+	// Initialize structured logger (writes to data/logs/lymuru.log).
+	if err := backend.InitLogger("data"); err != nil {
+		log.Printf("logger init: %v (continuing without file log)", err)
+	}
+
 	err = wails.Run(&options.App{
 		Title:     "Lymuru",
 		Width:     1280,

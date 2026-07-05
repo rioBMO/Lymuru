@@ -363,19 +363,19 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 		qualityCode = "6"
 	}
 
-	fmt.Printf("Getting download URL for track ID: %d with requested quality: %s\n", trackID, qualityCode)
+	LogInfo("Getting download URL for track ID: %d with requested quality: %s\n", trackID, qualityCode)
 
 	if strings.TrimSpace(q.customURL) != "" {
-		fmt.Printf("Trying custom Qobuz instance...\n")
+		LogInfo("Trying custom Qobuz instance...\n")
 		url, err := q.getQobuzCustomDownloadURL(trackID, qualityCode)
 		if err == nil {
-			fmt.Printf("Success (custom Qobuz instance)\n")
+			LogInfo("Success (custom Qobuz instance)\n")
 			return url, nil
 		}
 		if IsDownloadCancelledError(err) {
 			return "", err
 		}
-		fmt.Printf("Custom Qobuz instance failed: %v\n", err)
+		LogInfo("Custom Qobuz instance failed: %v\n", err)
 		if !allowFallback {
 			return "", err
 		}
@@ -385,11 +385,11 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 	downloadFunc := func(qual string) (string, error) {
 		url, err := q.getQobuzCommunityDownloadURL(trackID, qual)
 		if err == nil {
-			fmt.Printf("Success (community qbz-a)\n")
+			LogInfo("Success (community qbz-a)\n")
 			return url, nil
 		}
 		if !IsDownloadCancelledError(err) && !IsCommunityCooldownError(err) {
-			fmt.Printf("Community qbz-a failed: %v\n", err)
+			LogInfo("Community qbz-a failed: %v\n", err)
 		}
 		return "", err
 	}
@@ -405,7 +405,7 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 	currentQuality := qualityCode
 
 	if currentQuality == "27" && allowFallback {
-		fmt.Printf("Download with quality 27 failed, trying fallback to 7 (24-bit Standard)...\n")
+		LogInfo("Download with quality 27 failed, trying fallback to 7 (24-bit Standard)...\n")
 		url, err := downloadFunc("7")
 		if err == nil {
 			fmt.Println("Success with fallback quality 7")
@@ -419,7 +419,7 @@ func (q *QobuzDownloader) GetDownloadURL(trackID int64, quality string, allowFal
 	}
 
 	if currentQuality == "7" && allowFallback {
-		fmt.Printf("Download with quality 7 failed, trying fallback to 6 (16-bit Lossless)...\n")
+		LogInfo("Download with quality 7 failed, trying fallback to 6 (16-bit Lossless)...\n")
 		url, err := downloadFunc("6")
 		if err == nil {
 			fmt.Println("Success with fallback quality 6")
@@ -455,7 +455,7 @@ func (q *QobuzDownloader) DownloadFile(url, filepath string) error {
 		return fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}
 
-	fmt.Printf("Creating file: %s\n", filepath)
+	LogInfo("Creating file: %s\n", filepath)
 	out, err := os.Create(filepath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
@@ -470,7 +470,7 @@ func (q *QobuzDownloader) DownloadFile(url, filepath string) error {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
 
-	fmt.Printf("\rDownloaded: %.2f MB (Complete)\n", float64(pw.GetTotal())/(1024*1024))
+	LogInfo("\rDownloaded: %.2f MB (Complete)\n", float64(pw.GetTotal())/(1024*1024))
 	return nil
 }
 
@@ -581,7 +581,7 @@ func (q *QobuzDownloader) DownloadTrack(spotifyID, outputDir, quality, filenameF
 }
 
 func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filenameFormat string, includeTrackNumber bool, position int, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate string, useAlbumTrackNumber bool, spotifyCoverURL string, embedMaxQualityCover bool, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks int, spotifyTotalDiscs int, spotifyCopyright, spotifyPublisher, spotifyComposer, metadataSeparator, spotifyURL string, allowFallback bool, useFirstArtistOnly bool, useSingleGenre bool, embedGenre bool) (string, error) {
-	fmt.Printf("Fetching track info for ISRC: %s\n", isrc)
+	LogInfo("Fetching track info for ISRC: %s\n", isrc)
 
 	metaChan := make(chan Metadata, 1)
 	if embedGenre && isrc != "" {
@@ -595,7 +595,7 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 					fmt.Println("MusicBrainz metadata fetched")
 					metaChan <- fetchedMeta
 				} else {
-					fmt.Printf("Warning: Failed to fetch MusicBrainz metadata: %v\n", err)
+					LogWarn("Warning: Failed to fetch MusicBrainz metadata: %v\n", err)
 					metaChan <- Metadata{}
 				}
 			}
@@ -626,8 +626,8 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 	trackTitle := spotifyTrackName
 	albumTitle := spotifyAlbumName
 
-	fmt.Printf("Found track: %s - %s\n", artists, trackTitle)
-	fmt.Printf("Album: %s\n", albumTitle)
+	LogInfo("Found track: %s - %s\n", artists, trackTitle)
+	LogInfo("Album: %s\n", albumTitle)
 
 	qualityInfo := "Standard"
 	if track.Hires {
@@ -639,7 +639,7 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 			qualityInfo = "Hi-Res available"
 		}
 	}
-	fmt.Printf("Quality: %s\n", qualityInfo)
+	LogInfo("Quality: %s\n", qualityInfo)
 
 	fmt.Println("Getting download URL...")
 	downloadURL, err := q.GetDownloadURL(track.ID, quality, allowFallback)
@@ -655,7 +655,7 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 	if len(downloadURL) > 60 {
 		urlPreview = downloadURL[:60] + "..."
 	}
-	fmt.Printf("Download URL obtained: %s\n", urlPreview)
+	LogInfo("Download URL obtained: %s\n", urlPreview)
 
 	safeArtist := sanitizeFilename(artists)
 	safeAlbumArtist := sanitizeFilename(spotifyAlbumArtist)
@@ -672,16 +672,16 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 	filepath := filepath.Join(outputDir, filename)
 	filepath, alreadyExists := ResolveOutputPathForDownload(filepath, GetRedownloadWithSuffixSetting())
 	if alreadyExists {
-		fmt.Printf("File already exists: %s (%.2f MB)\n", filepath, float64(mustFileSize(filepath))/(1024*1024))
+		LogInfo("File already exists: %s (%.2f MB)\n", filepath, float64(mustFileSize(filepath))/(1024*1024))
 		return "EXISTS:" + filepath, nil
 	}
 
-	fmt.Printf("Downloading FLAC file to: %s\n", filepath)
+	LogInfo("Downloading FLAC file to: %s\n", filepath)
 	if err := q.DownloadFile(downloadURL, filepath); err != nil {
 		return "", fmt.Errorf("failed to download file: %w", err)
 	}
 
-	fmt.Printf("Downloaded: %s\n", filepath)
+	LogInfo("Downloaded: %s\n", filepath)
 
 	coverPath := ""
 
@@ -689,7 +689,7 @@ func (q *QobuzDownloader) DownloadTrackWithISRC(isrc, outputDir, quality, filena
 		coverPath = filepath + ".cover.jpg"
 		coverClient := NewCoverClient()
 		if err := coverClient.DownloadCoverToPath(spotifyCoverURL, coverPath, embedMaxQualityCover); err != nil {
-			fmt.Printf("Warning: Failed to download Spotify cover: %v\n", err)
+			LogWarn("Warning: Failed to download Spotify cover: %v\n", err)
 			coverPath = ""
 		} else {
 			defer os.Remove(coverPath)

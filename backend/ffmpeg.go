@@ -224,7 +224,7 @@ func prepareExecutableForUse(path string) error {
 
 	if runtime.GOOS == "darwin" {
 		if err := removeMacOSQuarantineAttribute(cleanedPath); err != nil {
-			fmt.Printf("[FFmpeg] Warning: failed to remove macOS quarantine from %s: %v\n", cleanedPath, err)
+			LogWarn("[FFmpeg] Warning: failed to remove macOS quarantine from %s: %v\n", cleanedPath, err)
 		}
 	}
 
@@ -257,7 +257,7 @@ func resolveExecutablePath(executableName string) (string, string, error) {
 	if !localExists {
 		if _, err := os.Stat(nextPath); err == nil {
 			if copyErr := copyExecutable(nextPath, localPath); copyErr == nil {
-				fmt.Printf("[FFmpeg] Copied %s from Lymuru-Next folder\n", executableName)
+				LogInfo("[FFmpeg] Copied %s from Lymuru-Next folder\n", executableName)
 				candidates = appendExecutableCandidate(candidates, seen, localPath, "migrated")
 			}
 		}
@@ -268,20 +268,20 @@ func resolveExecutablePath(executableName string) (string, string, error) {
 		if candidate.source != "system" {
 			if err := prepareExecutableForUse(candidate.path); err != nil {
 				lastErr = err
-				fmt.Printf("[FFmpeg] Skipping %s %s: %v\n", candidate.source, candidate.path, err)
+				LogInfo("[FFmpeg] Skipping %s %s: %v\n", candidate.source, candidate.path, err)
 				continue
 			}
 		}
 
 		if err := ValidateExecutable(candidate.path); err != nil {
 			lastErr = err
-			fmt.Printf("[FFmpeg] Skipping %s %s: %v\n", candidate.source, candidate.path, err)
+			LogInfo("[FFmpeg] Skipping %s %s: %v\n", candidate.source, candidate.path, err)
 			continue
 		}
 
 		if err := runExecutableVersionCheck(candidate.path); err != nil {
 			lastErr = err
-			fmt.Printf("[FFmpeg] Skipping %s %s: %v\n", candidate.source, candidate.path, err)
+			LogInfo("[FFmpeg] Skipping %s %s: %v\n", candidate.source, candidate.path, err)
 			continue
 		}
 
@@ -446,7 +446,7 @@ func getFFmpegDownloadURLs() ([]string, []string, error) {
 // (they arrive in Phase 2), so this version uses fmt.Printf logging instead.
 func DownloadFFmpeg(progressCallback func(int)) error {
 
-	fmt.Printf("[FFmpeg] Starting FFmpeg download...\n")
+	LogInfo("[FFmpeg] Starting FFmpeg download...\n")
 	SetDownloading(true)
 	defer SetDownloading(false)
 
@@ -491,13 +491,13 @@ func DownloadFFmpeg(progressCallback func(int)) error {
 func downloadWithFallback(urls []string, destDir string, progressCallback func(int), start, end int) error {
 	var lastErr error
 	for _, url := range urls {
-		fmt.Printf("[FFmpeg] Trying to download from: %s\n", url)
+		LogInfo("[FFmpeg] Trying to download from: %s\n", url)
 		err := downloadAndExtract(url, destDir, progressCallback, start, end)
 		if err == nil {
 			return nil
 		}
 		lastErr = err
-		fmt.Printf("[FFmpeg] Attempt failed: %v\n", err)
+		LogInfo("[FFmpeg] Attempt failed: %v\n", err)
 	}
 	return fmt.Errorf("all download attempts failed: %w", lastErr)
 }
@@ -535,9 +535,9 @@ func downloadAndExtract(url, destDir string, progressCallback func(int), progres
 
 	if totalSize > 0 {
 		totalSizeMB := float64(totalSize) / (1024 * 1024)
-		fmt.Printf("[FFmpeg] Total size: %.2f MB\n", totalSizeMB)
+		LogInfo("[FFmpeg] Total size: %.2f MB\n", totalSizeMB)
 	} else {
-		fmt.Printf("[FFmpeg] Downloading... (size unknown)\n")
+		LogInfo("[FFmpeg] Downloading... (size unknown)\n")
 	}
 
 	buf := make([]byte, 32*1024)
@@ -576,17 +576,17 @@ func downloadAndExtract(url, destDir string, progressCallback func(int), progres
 			if totalSize > 0 {
 				percent := float64(downloaded) * 100 / float64(totalSize)
 				if speedMBps > 0 {
-					fmt.Printf("\r[FFmpeg] Downloading: %.2f MB / %.2f MB (%.1f%%) - %.2f MB/s",
+					LogDebug("\r[FFmpeg] Downloading: %.2f MB / %.2f MB (%.1f%%) - %.2f MB/s",
 						mbDownloaded, float64(totalSize)/(1024*1024), percent, speedMBps)
 				} else {
-					fmt.Printf("\r[FFmpeg] Downloading: %.2f MB / %.2f MB (%.1f%%)",
+					LogDebug("\r[FFmpeg] Downloading: %.2f MB / %.2f MB (%.1f%%)",
 						mbDownloaded, float64(totalSize)/(1024*1024), percent)
 				}
 			} else {
 				if speedMBps > 0 {
-					fmt.Printf("\r[FFmpeg] Downloading: %.2f MB - %.2f MB/s", mbDownloaded, speedMBps)
+					LogDebug("\r[FFmpeg] Downloading: %.2f MB - %.2f MB/s", mbDownloaded, speedMBps)
 				} else {
-					fmt.Printf("\r[FFmpeg] Downloading: %.2f MB", mbDownloaded)
+					LogDebug("\r[FFmpeg] Downloading: %.2f MB", mbDownloaded)
 				}
 			}
 		}
@@ -601,12 +601,12 @@ func downloadAndExtract(url, destDir string, progressCallback func(int), progres
 	tmpFile.Close()
 
 	if totalSize > 0 {
-		fmt.Printf("\r[FFmpeg] Download complete: %.2f MB / %.2f MB (100%%)          \n",
+		LogDebug("\r[FFmpeg] Download complete: %.2f MB / %.2f MB (100%%)          \n",
 			float64(downloaded)/(1024*1024), float64(totalSize)/(1024*1024))
 	} else {
-		fmt.Printf("\r[FFmpeg] Download complete: %.2f MB          \n", float64(downloaded)/(1024*1024))
+		LogDebug("\r[FFmpeg] Download complete: %.2f MB          \n", float64(downloaded)/(1024*1024))
 	}
-	fmt.Printf("[FFmpeg] Extracting...\n")
+	LogInfo("[FFmpeg] Extracting...\n")
 
 	if strings.HasSuffix(url, ".tar.xz") {
 		return extractTarXz(tmpFile.Name(), destDir)
@@ -656,7 +656,7 @@ func extractZip(zipPath, destDir string) error {
 			continue
 		}
 
-		fmt.Printf("[FFmpeg] Found: %s\n", f.Name)
+		LogInfo("[FFmpeg] Found: %s\n", f.Name)
 
 		rc, err := f.Open()
 		if err != nil {
@@ -681,7 +681,7 @@ func extractZip(zipPath, destDir string) error {
 			return fmt.Errorf("failed to prepare extracted executable: %w", err)
 		}
 
-		fmt.Printf("[FFmpeg] Extracted to: %s\n", destPath)
+		LogInfo("[FFmpeg] Extracted to: %s\n", destPath)
 	}
 
 	if !foundFFmpeg && !foundFFprobe {
@@ -689,10 +689,10 @@ func extractZip(zipPath, destDir string) error {
 	}
 
 	if foundFFmpeg {
-		fmt.Printf("[FFmpeg] ffmpeg extracted successfully\n")
+		LogInfo("[FFmpeg] ffmpeg extracted successfully\n")
 	}
 	if foundFFprobe {
-		fmt.Printf("[FFmpeg] ffprobe extracted successfully\n")
+		LogInfo("[FFmpeg] ffprobe extracted successfully\n")
 	}
 
 	return nil
@@ -744,7 +744,7 @@ func extractTarXz(tarXzPath, destDir string) error {
 			continue
 		}
 
-		fmt.Printf("[FFmpeg] Found: %s\n", header.Name)
+		LogInfo("[FFmpeg] Found: %s\n", header.Name)
 
 		outFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
 		if err != nil {
@@ -762,7 +762,7 @@ func extractTarXz(tarXzPath, destDir string) error {
 			return fmt.Errorf("failed to prepare extracted executable: %w", err)
 		}
 
-		fmt.Printf("[FFmpeg] Extracted to: %s\n", destPath)
+		LogInfo("[FFmpeg] Extracted to: %s\n", destPath)
 	}
 
 	if !foundFFmpeg && !foundFFprobe {
@@ -770,10 +770,10 @@ func extractTarXz(tarXzPath, destDir string) error {
 	}
 
 	if foundFFmpeg {
-		fmt.Printf("[FFmpeg] ffmpeg extracted successfully\n")
+		LogInfo("[FFmpeg] ffmpeg extracted successfully\n")
 	}
 	if foundFFprobe {
-		fmt.Printf("[FFmpeg] ffprobe extracted successfully\n")
+		LogInfo("[FFmpeg] ffprobe extracted successfully\n")
 	}
 
 	return nil

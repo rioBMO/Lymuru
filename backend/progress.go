@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -264,9 +263,9 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 		if timeDiff > 0 {
 			speedMBps = (bytesDiff / (1024 * 1024)) / timeDiff
 			SetDownloadSpeed(speedMBps)
-			fmt.Printf("\rDownloaded: %.2f MB (%.2f MB/s)", mbDownloaded, speedMBps)
+			LogInfo("\rDownloaded: %.2f MB (%.2f MB/s)", mbDownloaded, speedMBps)
 		} else {
-			fmt.Printf("\rDownloaded: %.2f MB", mbDownloaded)
+			LogInfo("\rDownloaded: %.2f MB", mbDownloaded)
 		}
 
 		SetDownloadProgress(mbDownloaded)
