@@ -12,9 +12,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { openExternal } from "@/lib/utils";
-import { WandSparkles, Activity, AudioLines } from "lucide-react";
+import { WandSparkles, Activity, AudioLines, PlugZap } from "lucide-react";
 
-export type PageType = "main" | "settings" | "file-manager" | "lyrics-manager" | "history" | "audio-converter" | "audio-analysis" | "audio-resampler";
+export type PageType = "main" | "settings" | "file-manager" | "lyrics-manager" | "history" | "audio-converter" | "audio-analysis" | "audio-resampler" | "api-status";
 
 interface SidebarProps {
     currentPage: PageType;
@@ -101,6 +101,22 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                     </TooltipTrigger>
                     <TooltipContent side="right">
                         <p>Settings</p>
+                    </TooltipContent>
+                </Tooltip>
+
+                <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                        <Button
+                            variant={currentPage === "api-status" ? "secondary" : "ghost"}
+                            size="icon"
+                            className={`h-10 w-10 ${currentPage === "api-status" ? "bg-primary/10 text-primary hover:bg-primary/20" : "hover:bg-primary/10 hover:text-primary"}`}
+                            onClick={() => onPageChange("api-status")}
+                        >
+                            <PlugZap size={20} />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                        <p>API Status</p>
                     </TooltipContent>
                 </Tooltip>
 
