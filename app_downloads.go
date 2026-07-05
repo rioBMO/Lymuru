@@ -87,7 +87,9 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 	// Notify the progress system.
 	backend.SetDownloading(true)
 	backend.StartDownloadItem(req.ItemID)
-	defer backend.SetDownloading(false)
+	defer func() {
+		backend.SetDownloading(false)
+	}()
 
 	// Defaults for optional fields.
 	if req.Separator == "" {
@@ -107,6 +109,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 	switch strings.ToLower(req.Service) {
 	case "tidal":
 		if req.SpotifyID == "" {
+			backend.FailDownloadItem(req.ItemID, "spotify_id is required for Tidal")
 			return DownloadResponse{Success: false, Error: "spotify_id is required for Tidal", ItemID: req.ItemID}, fmt.Errorf("spotify_id required")
 		}
 
@@ -131,6 +134,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 
 	case "amazon":
 		if req.SpotifyID == "" {
+			backend.FailDownloadItem(req.ItemID, "spotify_id is required for Amazon")
 			return DownloadResponse{Success: false, Error: "spotify_id is required for Amazon", ItemID: req.ItemID}, fmt.Errorf("spotify_id required")
 		}
 
@@ -153,6 +157,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 
 	case "qobuz":
 		if req.SpotifyID == "" {
+			backend.FailDownloadItem(req.ItemID, "spotify_id is required for Qobuz")
 			return DownloadResponse{Success: false, Error: "spotify_id is required for Qobuz", ItemID: req.ItemID}, fmt.Errorf("spotify_id required")
 		}
 
@@ -184,6 +189,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 
 	case "deezer":
 		if a.sidecar == nil || !a.sidecar.IsRunning() {
+			backend.FailDownloadItem(req.ItemID, "Deezer sidecar is not running")
 			return DownloadResponse{
 				Success: false,
 				Error:   "Deezer sidecar is not running",
@@ -191,6 +197,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 			}, fmt.Errorf("sidecar not running")
 		}
 		if req.TrackName == "" || req.ArtistName == "" {
+			backend.FailDownloadItem(req.ItemID, "track name and artist are required for Deezer")
 			return DownloadResponse{
 				Success: false,
 				Error:   "track name and artist are required for Deezer",
@@ -199,6 +206,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 		search, searchErr := a.sidecar.Search(req.ArtistName, req.TrackName)
 		if searchErr != nil {
+			backend.FailDownloadItem(req.ItemID, fmt.Sprintf("Deezer search: %v", searchErr))
 			return DownloadResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Deezer search: %v", searchErr),
@@ -207,6 +215,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 		searchKey, _ := search["search_key"].(string)
 		if searchKey == "" {
+			backend.FailDownloadItem(req.ItemID, "No results found on Deezer")
 			return DownloadResponse{
 				Success: false,
 				Error:   "No results found on Deezer",
@@ -215,6 +224,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 		taskID, dlErr := a.sidecar.Download(searchKey, 0)
 		if dlErr != nil {
+			backend.FailDownloadItem(req.ItemID, fmt.Sprintf("Deezer download: %v", dlErr))
 			return DownloadResponse{
 				Success: false,
 				Error:   fmt.Sprintf("Deezer download: %v", dlErr),
@@ -226,26 +236,31 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		sourceLabel = "Deezer"
 
 	default:
+		errMsg := fmt.Sprintf("unsupported service: %s", req.Service)
+		backend.FailDownloadItem(req.ItemID, errMsg)
 		return DownloadResponse{
 			Success: false,
-			Error:   fmt.Sprintf("unsupported service: %s", req.Service),
+			Error:   errMsg,
 			ItemID:  req.ItemID,
-		}, fmt.Errorf("unsupported service: %s", req.Service)
+		}, fmt.Errorf("%s", errMsg)
 	}
 
 	if err != nil {
 		errMsg := err.Error()
 		if strings.HasPrefix(filename, "EXISTS:") {
+			existingFile := strings.TrimPrefix(filename, "EXISTS:")
+			backend.SkipDownloadItem(req.ItemID, existingFile)
 			return DownloadResponse{
 				Success:       true,
 				Message:       "File already exists",
-				File:          strings.TrimPrefix(filename, "EXISTS:"),
+				File:          existingFile,
 				AlreadyExists: true,
 				ItemID:        req.ItemID,
 				SourceURL:     sourceURL,
 				SourceLabel:   sourceLabel,
 			}, nil
 		}
+		backend.FailDownloadItem(req.ItemID, errMsg)
 		return DownloadResponse{
 			Success:     false,
 			Error:       errMsg,
@@ -271,6 +286,13 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 			Timestamp: now,
 		})
 	}
+
+	// Mark the queue item as completed with the final file size.
+	var finalSizeMB float64
+	if fi, statErr := os.Stat(filename); statErr == nil {
+		finalSizeMB = float64(fi.Size()) / (1024 * 1024)
+	}
+	backend.CompleteDownloadItem(req.ItemID, filename, finalSizeMB)
 
 	return DownloadResponse{
 		Success:     true,
@@ -331,6 +353,14 @@ func (a *App) AddToDownloadQueue(spotifyID, trackName, artistName, albumName str
 
 func (a *App) MarkDownloadItemFailed(itemID, errorMsg string) {
 	backend.FailDownloadItem(itemID, errorMsg)
+}
+
+func (a *App) MarkDownloadItemCompleted(itemID, filePath string, finalSizeMB float64) {
+	backend.CompleteDownloadItem(itemID, filePath, finalSizeMB)
+}
+
+func (a *App) MarkDownloadItemSkipped(itemID, filePath string) {
+	backend.SkipDownloadItem(itemID, filePath)
 }
 
 func (a *App) ForceStopDownloads() {

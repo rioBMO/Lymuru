@@ -46,18 +46,27 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     const [savingCredentials, setSavingCredentials] = useState(false);
     const [sidecarRunning, setSidecarRunning] = useState(false);
     const [sidecarAuth, setSidecarAuth] = useState(false);
+    const [activeTab, setActiveTab] = useState<"general" | "download" | "naming" | "files" | "metadata" | "status" | "sidecar">("general");
     useEffect(() => {
         if (activeTab === "sidecar") {
             HasSidecarCredentials().then((has) => {
                 if (has) {
-                    // Credentials exist in keychain but we can't read them back for display.
+                    // Credentials exist in keychain — clear inputs and mark as not modified
+                    // so the UI accurately reflects "already configured" state.
+                    setSidecarApiId("");
+                    setSidecarApiHash("");
+                    setSidecarPhone("");
                     setCredentialsModified(false);
                 }
-            }).catch(() => {});
+            }).catch((err) => {
+                console.error("Failed to check sidecar credentials:", err);
+            });
             GetSidecarStatus().then((s: any) => {
                 setSidecarRunning(s.running);
                 setSidecarAuth(s.authenticated);
-            }).catch(() => {});
+            }).catch((err) => {
+                console.error("Failed to get sidecar status:", err);
+            });
         }
     }, [activeTab]);
     const resetToSaved = useCallback(() => {
@@ -284,7 +293,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             toast.error(`Failed to check Qobuz-DL instance: ${error}`);
         }
     };
-    const [activeTab, setActiveTab] = useState<"general" | "download" | "naming" | "files" | "metadata" | "status" | "sidecar">("general");
+    // activeTab is declared near line 49, before the sidecar useEffect that depends on it.
     return (<div className="space-y-4 h-full flex flex-col">
       <div className="flex items-center justify-between shrink-0">
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -975,7 +984,16 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                       try {
                         await RestartSidecar();
                         toast.success("Sidecar restarted");
-                        setSidecarRunning(true);
+                        // Re-check actual status instead of optimistically setting running=true,
+                        // so sidecarAuth is also updated (e.g. session may have expired).
+                        try {
+                          const s: any = await GetSidecarStatus();
+                          setSidecarRunning(s.running);
+                          setSidecarAuth(s.authenticated);
+                        } catch (statusErr) {
+                          console.error("Failed to refresh sidecar status after restart:", statusErr);
+                          setSidecarRunning(true); // fallback: at least mark running since restart succeeded
+                        }
                       } catch (err: any) {
                         toast.error("Failed to restart sidecar", { description: err?.message || String(err) });
                       }
