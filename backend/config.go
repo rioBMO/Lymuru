@@ -18,7 +18,7 @@ type Settings struct {
 	HasCompletedOnboarding bool   `json:"has_completed_onboarding"` // onboarding done
 	ExportLrcFile          bool   `json:"export_lrc_file"`          // save .lrc file alongside downloaded audio
 	FFmpegPath             string `json:"ffmpeg_path"`              // path to ffmpeg executable; auto-detect if empty
-	AudioSource            string `json:"audio_source"`             // "auto" (default), "tidal", "amazon", "qobuz", or "sidecar"
+	AudioSource            string `json:"audio_source"`             // "auto" (default), "tidal", "amazon", "qobuz", or "deezer"
 
 	AudioFormat           string `json:"audio_format"`
 	FilenameFormat        string `json:"filename_format"`

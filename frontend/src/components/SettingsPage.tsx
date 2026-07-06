@@ -17,7 +17,7 @@ import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { openExternal } from "@/lib/utils";
 import { ApiStatusTab } from "./ApiStatusTab";
-import { AmazonIcon, QobuzIcon, SonglinkIcon, SongstatsIcon, TidalIcon } from "./PlatformIcons";
+import { AmazonIcon, DeezerIcon, QobuzIcon, SonglinkIcon, SongstatsIcon, TidalIcon } from "./PlatformIcons";
 interface SettingsPageProps {
     onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void;
     onResetRequest?: (resetFn: () => void) => void;
@@ -547,6 +547,12 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                           Amazon Music
                         </span>
                       </SelectItem>
+                      <SelectItem value="deezer">
+                        <span className="flex items-center gap-2">
+                          <DeezerIcon />
+                          Deezer
+                        </span>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -559,100 +565,76 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="w-fit min-w-max">
-                          <SelectItem value="tidal-qobuz-amazon">
+                          <SelectItem value="tidal-qobuz-amazon-deezer">
                                 <span className="flex items-center gap-1.5">
                                   <TidalIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <QobuzIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <AmazonIcon className="fill-current"/>
+                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
+                                  <DeezerIcon className="fill-current"/>
                                 </span>
                               </SelectItem>
-                              <SelectItem value="tidal-amazon-qobuz">
+                              <SelectItem value="tidal-amazon-qobuz-deezer">
                                 <span className="flex items-center gap-1.5">
                                   <TidalIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <AmazonIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <QobuzIcon className="fill-current"/>
+                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
+                                  <DeezerIcon className="fill-current"/>
                                 </span>
                               </SelectItem>
-                              <SelectItem value="qobuz-tidal-amazon">
+                              <SelectItem value="qobuz-tidal-amazon-deezer">
                                 <span className="flex items-center gap-1.5">
                                   <QobuzIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <TidalIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <AmazonIcon className="fill-current"/>
+                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
+                                  <DeezerIcon className="fill-current"/>
                                 </span>
                               </SelectItem>
-                              <SelectItem value="qobuz-amazon-tidal">
+                              <SelectItem value="qobuz-amazon-tidal-deezer">
                                 <span className="flex items-center gap-1.5">
                                   <QobuzIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <AmazonIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <TidalIcon className="fill-current"/>
+                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
+                                  <DeezerIcon className="fill-current"/>
                                 </span>
                               </SelectItem>
-                              <SelectItem value="amazon-tidal-qobuz">
+                              <SelectItem value="amazon-tidal-qobuz-deezer">
                                 <span className="flex items-center gap-1.5">
                                   <AmazonIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <TidalIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <QobuzIcon className="fill-current"/>
+                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
+                                  <DeezerIcon className="fill-current"/>
                                 </span>
                               </SelectItem>
-                              <SelectItem value="amazon-qobuz-tidal">
+                              <SelectItem value="amazon-qobuz-tidal-deezer">
                                 <span className="flex items-center gap-1.5">
                                   <AmazonIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <QobuzIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
                                   <TidalIcon className="fill-current"/>
-                                </span>
-                              </SelectItem>
-                              <SelectItem value="tidal-qobuz">
-                                <span className="flex items-center gap-1.5">
-                                  <TidalIcon className="fill-current"/>
                                   <ArrowRight className="h-3 w-3 text-muted-foreground"/>
-                                  <QobuzIcon className="fill-current"/>
+                                  <DeezerIcon className="fill-current"/>
                                 </span>
                               </SelectItem>
-                              <SelectItem value="tidal-amazon">
-                                <span className="flex items-center gap-1.5">
-                                  <TidalIcon className="fill-current"/>
-                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
-                                  <AmazonIcon className="fill-current"/>
-                                </span>
-                              </SelectItem>
-                              <SelectItem value="qobuz-tidal">
-                                <span className="flex items-center gap-1.5">
-                                  <QobuzIcon className="fill-current"/>
-                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
-                                  <TidalIcon className="fill-current"/>
-                                </span>
-                              </SelectItem>
-                              <SelectItem value="amazon-tidal">
-                                <span className="flex items-center gap-1.5">
-                                  <AmazonIcon className="fill-current"/>
-                                  <ArrowRight className="h-3 w-3 text-muted-foreground"/>
-                                  <TidalIcon className="fill-current"/>
-                                </span>
-                              </SelectItem>
-                          <SelectItem value="qobuz-amazon">
+                          <SelectItem value="deezer">
                             <span className="flex items-center gap-1.5">
-                              <QobuzIcon className="fill-current"/>
-                              <ArrowRight className="h-3 w-3 text-muted-foreground"/>
-                              <AmazonIcon className="fill-current"/>
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="amazon-qobuz">
-                            <span className="flex items-center gap-1.5">
-                              <AmazonIcon className="fill-current"/>
-                              <ArrowRight className="h-3 w-3 text-muted-foreground"/>
-                              <QobuzIcon className="fill-current"/>
+                              <DeezerIcon className="fill-current"/>
+                              <span className="text-sm ml-1">Deezer only</span>
                             </span>
                           </SelectItem>
                         </SelectContent>
@@ -701,7 +683,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                     </Select>)}
                 </div>
 
-                {((effectiveDownloader === "tidal" &&
+                {effectiveDownloader !== "deezer" && ((effectiveDownloader === "tidal" &&
                 tempSettings.tidalQuality === "HI_RES_LOSSLESS") ||
                 (effectiveDownloader === "qobuz" &&
                     tempSettings.qobuzQuality === "27") ||

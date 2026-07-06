@@ -20,7 +20,7 @@ export type FilenamePreset = "title" | "title-artist" | "artist-title" | "track-
 export type ExistingFileCheckMode = "filename" | "isrc";
 export interface Settings {
     downloadPath: string;
-    downloader: "auto" | "tidal" | "qobuz" | "amazon";
+    downloader: "auto" | "tidal" | "qobuz" | "amazon" | "deezer";
     customTidalApi: string;
     customQobuzApi: string;
     linkResolver: "songstats" | "songlink";
@@ -215,7 +215,7 @@ export const DEFAULT_SETTINGS: Settings = {
     tidalQuality: "LOSSLESS",
     qobuzQuality: "6",
     amazonQuality: "16",
-    autoOrder: "tidal-qobuz-amazon",
+    autoOrder: "tidal-qobuz-amazon-deezer",
     autoQuality: "16",
     allowFallback: true,
     createPlaylistFolder: true,
@@ -568,7 +568,7 @@ export function hasConfiguredCustomQobuzApi(value: unknown): boolean {
     return normalizeCustomQobuzApi(value).startsWith("https://");
 }
 export function sanitizeAutoOrder(order: unknown): string {
-    const allowedServices = new Set(["tidal", "qobuz", "amazon"]);
+    const allowedServices = new Set(["tidal", "qobuz", "amazon", "deezer"]);
     const fallbackOrder = "tidal-qobuz-amazon";
     if (typeof order !== "string") {
         return fallbackOrder;
@@ -581,7 +581,7 @@ export function sanitizeAutoOrder(order: unknown): string {
 }
 function normalizeDownloader(value: unknown): Settings["downloader"] {
     const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-    if (normalized === "tidal" || normalized === "qobuz" || normalized === "amazon" || normalized === "auto") {
+    if (normalized === "tidal" || normalized === "qobuz" || normalized === "amazon" || normalized === "auto" || normalized === "deezer") {
         return normalized;
     }
     return DEFAULT_SETTINGS.downloader;
@@ -613,6 +613,19 @@ function normalizeSettingsPayload(settings: SettingsPayload): SettingsPayload {
     if ("python_path" in normalized && !("pythonPath" in normalized)) {
         normalized.pythonPath = String(normalized.python_path);
         delete normalized.python_path;
+    }
+    if ("python_path" in normalized && !("pythonPath" in normalized)) {
+        normalized.pythonPath = String(normalized.python_path);
+        delete normalized.python_path;
+    }
+    // Backend returns audio_source, frontend uses downloader.
+    if ("audio_source" in normalized && !("downloader" in normalized)) {
+        (normalized as any).downloader = normalizeDownloader(normalized.audio_source);
+        delete normalized.audio_source;
+    }
+    if ("audioSource" in normalized && !("downloader" in normalized)) {
+        (normalized as any).downloader = normalizeDownloader(normalized.audioSource);
+        delete normalized.audioSource;
     }
     if (!("folderPreset" in normalized) &&
         ("artistSubfolder" in normalized || "albumSubfolder" in normalized)) {

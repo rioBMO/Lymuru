@@ -410,6 +410,59 @@ export function useDownload() {
                         lastResponse = { success: false, error: String(err) };
                     }
                 }
+                else if (s === "deezer") {
+                    try {
+                        logger.debug(`trying deezer for: ${trackName} - ${artistName}`);
+                        const response = await downloadTrack({
+                            service: "deezer",
+                            query,
+                            track_name: trackName,
+                            artist_name: displayArtist,
+                            album_name: albumName,
+                            album_artist: displayAlbumArtist,
+                            release_date: finalReleaseDate || releaseDate,
+                            cover_url: coverUrl,
+                            output_dir: outputDir,
+                            filename_format: settings.filenameTemplate,
+                            artists: artistName,
+                            category: getAlbumCategoryLabel(finalAlbumType),
+                            upc: finalUPC,
+                            track_number: settings.trackNumber,
+                            position,
+                            use_album_track_number: useAlbumTrackNumber,
+                            spotify_id: spotifyId,
+                            embed_lyrics: settings.embedLyrics,
+                            embed_max_quality_cover: settings.embedMaxQualityCover,
+                            duration: durationSeconds,
+                            item_id: itemID,
+                            audio_format: "flac",
+                            spotify_track_number: spotifyTrackNumber,
+                            spotify_disc_number: spotifyDiscNumber,
+                            spotify_total_tracks: spotifyTotalTracks,
+                            spotify_total_discs: spotifyTotalDiscs,
+                            isrc: resolvedTemplateISRC || undefined,
+                            copyright: copyright,
+                            publisher: publisher,
+                            use_first_artist_only: settings.useFirstArtistOnly,
+                            use_single_genre: settings.useSingleGenre,
+                            embed_genre: settings.embedGenre,
+                            save_cover: settings.saveCover,
+                        });
+                        if (response.success) {
+                            logger.success(`Deezer: ${trackName} - ${artistName}${formatSourceSuffix(response)}`);
+                            return response;
+                        }
+                        const errMsg = response.error || response.message || "Failed";
+                        fallbackErrors.push(`[Deezer] ${errMsg}`);
+                        lastResponse = response;
+                        logger.warning(`deezer failed, trying next...`);
+                    }
+                    catch (err) {
+                        logger.error(`deezer error: ${err}`);
+                        fallbackErrors.push(`[Deezer] ${String(err)}`);
+                        lastResponse = { success: false, error: String(err) };
+                    }
+                }
             }
             if (itemID) {
                 const { MarkDownloadItemFailed } = await import("../../wailsjs/go/main/App");
@@ -434,7 +487,7 @@ export function useDownload() {
         }
         logger.debug(`trying ${service} for: ${trackName} - ${artistName}`);
         const singleServiceResponse = await downloadTrack({
-            service: service as "tidal" | "qobuz" | "amazon",
+            service: service as "tidal" | "qobuz" | "amazon" | "deezer",
             query,
             track_name: trackName,
             artist_name: displayArtist,
@@ -739,6 +792,58 @@ export function useDownload() {
                         lastResponse = { success: false, error: String(err) };
                     }
                 }
+                else if (s === "deezer") {
+                    try {
+                        logger.debug(`trying deezer for: ${trackName} - ${artistName}`);
+                        const response = await downloadTrack({
+                            service: "deezer",
+                            query,
+                            track_name: trackName,
+                            artist_name: displayArtist,
+                            album_name: albumName,
+                            album_artist: displayAlbumArtist,
+                            release_date: finalReleaseDate || releaseDate,
+                            cover_url: coverUrl,
+                            output_dir: outputDir,
+                            filename_format: settings.filenameTemplate,
+                            artists: artistName,
+                            category: getAlbumCategoryLabel(finalAlbumType),
+                            upc: finalUPC,
+                            track_number: settings.trackNumber,
+                            position: trackNumberForTemplate,
+                            use_album_track_number: useAlbumTrackNumber,
+                            spotify_id: spotifyId,
+                            embed_lyrics: settings.embedLyrics,
+                            embed_max_quality_cover: settings.embedMaxQualityCover,
+                            duration: durationSeconds,
+                            item_id: itemID,
+                            audio_format: "flac",
+                            spotify_track_number: spotifyTrackNumber,
+                            spotify_disc_number: spotifyDiscNumber,
+                            spotify_total_tracks: spotifyTotalTracks,
+                            spotify_total_discs: spotifyTotalDiscs,
+                            isrc: resolvedTemplateISRC || undefined,
+                            copyright: copyright,
+                            publisher: publisher,
+                            use_first_artist_only: settings.useFirstArtistOnly,
+                            use_single_genre: settings.useSingleGenre,
+                            embed_genre: settings.embedGenre,
+                        });
+                        if (response.success) {
+                            logger.success(`deezer: ${trackName} - ${artistName}${formatSourceSuffix(response)}`);
+                            return response;
+                        }
+                        const errMsg = response.error || response.message || "Failed";
+                        fallbackErrors.push(`[Deezer] ${errMsg}`);
+                        lastResponse = response;
+                        logger.warning(`deezer failed, trying next...`);
+                    }
+                    catch (err) {
+                        logger.error(`deezer error: ${err}`);
+                        fallbackErrors.push(`[Deezer] ${String(err)}`);
+                        lastResponse = { success: false, error: String(err) };
+                    }
+                }
             }
             if (!lastResponse.success && itemID) {
                 const { MarkDownloadItemFailed } = await import("../../wailsjs/go/main/App");
@@ -758,8 +863,11 @@ export function useDownload() {
         else if (service === "amazon") {
             audioFormat = settings.amazonQuality || "16";
         }
+        else if (service === "deezer") {
+            audioFormat = "flac";
+        }
         const singleServiceResponse = await downloadTrack({
-            service: service as "tidal" | "qobuz" | "amazon",
+            service: service as "tidal" | "qobuz" | "amazon" | "deezer",
             query,
             track_name: trackName,
             artist_name: displayArtist,
