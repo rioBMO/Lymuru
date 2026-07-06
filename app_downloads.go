@@ -350,7 +350,7 @@ func (a *App) ClearAllDownloads() {
 }
 
 func (a *App) AddToDownloadQueue(spotifyID, trackName, artistName, albumName string) string {
-	backend.AddToQueue("", trackName, artistName, albumName, spotifyID)
+	backend.AddToQueue(spotifyID, trackName, artistName, albumName, spotifyID)
 	return spotifyID
 }
 
