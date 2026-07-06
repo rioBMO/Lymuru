@@ -29,8 +29,8 @@ type Settings struct {
 	AutoOrder             string `json:"auto_order"`
 	Separator             string `json:"separator"`
 	// Sidecar / Deezer settings.
-	DeezerEnabled bool   `json:"deezer_enabled"`
-	PythonPath    string `json:"python_path,omitempty"`
+	SidecarEnabled bool   `json:"sidecar_enabled"`
+	PythonPath     string `json:"python_path,omitempty"`
 }
 
 // DefaultSettings returns sensible defaults. DownloadsFolder is expanded.
@@ -109,8 +109,13 @@ func (c *Config) Load() (Settings, error) {
 			out.AutoOrder = v
 		case "separator":
 			out.Separator = v
+		case "sidecar_enabled":
+			out.SidecarEnabled = v == "1" || v == "true"
 		case "deezer_enabled":
-			out.DeezerEnabled = v == "1" || v == "true"
+			// Legacy key — only apply if the new key wasn't present.
+			if !out.SidecarEnabled {
+				out.SidecarEnabled = v == "1" || v == "true"
+			}
 		case "python_path":
 			out.PythonPath = v
 		}
@@ -140,7 +145,7 @@ func (c *Config) Save(s Settings) error {
 		"link_resolver":            s.LinkResolver,
 		"auto_order":               s.AutoOrder,
 		"separator":                s.Separator,
-		"deezer_enabled":           boolToOnboard(s.DeezerEnabled),
+		"sidecar_enabled":          boolToOnboard(s.SidecarEnabled),
 		"python_path":              s.PythonPath,
 	}
 	tx, err := c.db.Conn().Begin()

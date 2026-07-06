@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,6 +104,10 @@ type DeezerSidecar struct {
 
 	// Python path.
 	pythonPath string
+
+	// Exit monitoring.
+	onStatusChange func(SidecarStatus)
+	stderrBuf      strings.Builder // captured stderr for diagnostics on crash
 }
 
 // NewDeezerSidecar creates a new sidecar manager. Call Start() to spawn the
@@ -137,6 +142,10 @@ func (s *DeezerSidecar) Start() error {
 		s.startErr = "Telegram credentials not configured"
 		return fmt.Errorf("%s", s.startErr)
 	}
+
+	// Reset start error and stderr buffer.
+	s.startErr = ""
+	s.stderrBuf.Reset()
 
 	// Resolve the Python executable.
 	pyPath := s.pythonPath
@@ -226,9 +235,12 @@ func (s *DeezerSidecar) Start() error {
 		defer close(s.eventDone)
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
+			line := scanner.Text()
+			// Capture last lines of stderr for crash diagnostics.
+			s.appendStderr(line)
 			var ev SidecarEvent
 			if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
-				LogDebug("[Sidecar] non-event stderr: %s", scanner.Text())
+				LogDebug("[Sidecar] non-event stderr: %s", line)
 				continue
 			}
 			if ev.Name == "auth_needed" {
@@ -250,6 +262,51 @@ func (s *DeezerSidecar) Start() error {
 			LogWarn("[Sidecar] startup ping failed: %v", err)
 		} else {
 			LogInfo("[Sidecar] started successfully")
+		}
+	}()
+
+	// Monitor process exit. When the process dies, update state and notify.
+	go func() {
+		waitErr := s.cmd.Wait()
+		s.mu.Lock()
+		s.running = false
+		s.authenticated = false
+		if waitErr != nil {
+			s.startErr = waitErr.Error()
+		}
+		// Append captured stderr for better diagnostics.
+		stderrText := strings.TrimSpace(s.stderrBuf.String())
+		stderrLower := strings.ToLower(stderrText)
+		if strings.Contains(stderrLower, "microsoft store") || strings.Contains(stderrLower, "python was not found") {
+			s.startErr = "Python is not installed or only the Microsoft Store alias is available. Install Python from python.org and restart, or set the Python Path in Settings → Deezer."
+		} else if stderrText != "" {
+			lastLine := stderrText
+			if idx := strings.LastIndex(lastLine, "\n"); idx >= 0 {
+				lastLine = lastLine[idx+1:]
+			}
+			if s.startErr == "" {
+				s.startErr = lastLine
+			} else {
+				s.startErr = fmt.Sprintf("%s (stderr: %s)", s.startErr, lastLine)
+			}
+		}
+		// Unblock pending callers.
+		for id, pr := range s.pending {
+			select {
+			case pr.ch <- sidecarResponse{ID: id, OK: false, Error: "sidecar process exited"}:
+			default:
+			}
+			delete(s.pending, id)
+		}
+		status := SidecarStatus{
+			Running:       s.running,
+			Authenticated: s.authenticated,
+			Error:         s.startErr,
+		}
+		cb := s.onStatusChange
+		s.mu.Unlock()
+		if cb != nil {
+			cb(status)
 		}
 	}()
 
@@ -279,6 +336,9 @@ func (s *DeezerSidecar) Stop() {
 	}
 	s.running = false
 	s.authenticated = false
+
+	// Close the events channel so the forwarding goroutine exits.
+	close(s.events)
 }
 
 // IsRunning returns true if the sidecar process is alive.
@@ -309,6 +369,14 @@ func (s *DeezerSidecar) Status() SidecarStatus {
 		Authenticated: s.authenticated,
 		Error:         s.startErr,
 	}
+}
+
+// SetOnStatusChange registers a callback invoked when the sidecar status
+// changes (e.g., on process exit). The callback fires under no lock.
+func (s *DeezerSidecar) SetOnStatusChange(cb func(SidecarStatus)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onStatusChange = cb
 }
 
 // SubmitAuthCode forwards an auth code to the sidecar.
@@ -386,6 +454,19 @@ func (s *DeezerSidecar) SetSettings(downloadsFolder string, exportLrc bool) erro
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+// appendStderr appends a line to the stderr buffer, keeping only the last 4 KB.
+func (s *DeezerSidecar) appendStderr(line string) {
+	s.stderrBuf.WriteString(line)
+	s.stderrBuf.WriteByte('\n')
+	// Trim to last ~4 KB to avoid unbounded growth.
+	if s.stderrBuf.Len() > 4096 {
+		buf := s.stderrBuf.String()
+		keep := buf[len(buf)-4096:]
+		s.stderrBuf.Reset()
+		s.stderrBuf.WriteString(keep)
+	}
+}
+
 func (s *DeezerSidecar) call(method string, params map[string]interface{}, timeout time.Duration) (sidecarResponse, error) {
 	if params == nil {
 		params = map[string]interface{}{}
@@ -432,13 +513,30 @@ func (s *DeezerSidecar) call(method string, params map[string]interface{}, timeo
 	}
 }
 
-// resolvePython finds a Python 3 executable on the system PATH.
+// resolvePython finds a working Python 3 executable on the system PATH.
+// On Windows it also tries the "py" launcher and verifies candidates are
+// not the Microsoft Store stub.
 func resolvePython() string {
-	for _, name := range []string{"python3", "python"} {
+	for _, name := range []string{"python3", "python", "py"} {
 		p, err := exec.LookPath(name)
-		if err == nil {
+		if err != nil {
+			continue
+		}
+		// Quick verification: run python --version to confirm it's real.
+		if isRealPython(p) {
 			return p
 		}
 	}
 	return ""
+}
+
+// isRealPython runs the given executable with --version and checks if it
+// outputs a Python version string (not a Microsoft Store alias message).
+func isRealPython(exe string) bool {
+	out, err := exec.Command(exe, "--version").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	s := strings.ToLower(string(out))
+	return strings.Contains(s, "python")
 }

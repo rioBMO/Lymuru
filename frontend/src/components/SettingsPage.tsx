@@ -13,6 +13,7 @@ import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSetti
 import { FormatEditor } from "@/components/FormatEditor";
 import { themes, applyTheme } from "@/lib/themes";
 import { SelectFolder, OpenConfigFolder, CheckCustomTidalAPI, CheckCustomQobuzAPI, SetSidecarCredentials, RestartSidecar, GetSidecarStatus, HasSidecarCredentials } from "../../wailsjs/go/main/App";
+import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { openExternal } from "@/lib/utils";
 import { ApiStatusTab } from "./ApiStatusTab";
@@ -69,6 +70,14 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             });
         }
     }, [activeTab]);
+    // Listen for sidecar status changes emitted by the backend (e.g. on process exit).
+    useEffect(() => {
+        EventsOn("sidecar:status", (st: any) => {
+            setSidecarRunning(st.running);
+            setSidecarAuth(st.authenticated);
+        });
+        return () => { EventsOff("sidecar:status"); };
+    }, []);
     const resetToSaved = useCallback(() => {
         const freshSavedSettings = getSettings();
         flushSync(() => {

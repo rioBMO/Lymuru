@@ -601,6 +601,19 @@ function normalizeSettingsPayload(settings: SettingsPayload): SettingsPayload {
         normalized.themeMode = normalized.darkMode ? "dark" : "light";
         delete normalized.darkMode;
     }
+    // Backend snake_case → frontend camelCase mappings.
+    if ("sidecar_enabled" in normalized && !("sidecarEnabled" in normalized)) {
+        normalized.sidecarEnabled = !!normalized.sidecar_enabled;
+        delete normalized.sidecar_enabled;
+    }
+    if ("deezer_enabled" in normalized && !("sidecarEnabled" in normalized)) {
+        normalized.sidecarEnabled = !!normalized.deezer_enabled;
+        delete normalized.deezer_enabled;
+    }
+    if ("python_path" in normalized && !("pythonPath" in normalized)) {
+        normalized.pythonPath = String(normalized.python_path);
+        delete normalized.python_path;
+    }
     if (!("folderPreset" in normalized) &&
         ("artistSubfolder" in normalized || "albumSubfolder" in normalized)) {
         const hasArtist = Boolean(normalized.artistSubfolder);

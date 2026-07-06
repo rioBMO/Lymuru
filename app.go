@@ -59,7 +59,7 @@ func (a *App) startup(ctx context.Context) {
 			backend.LogWarn("[Sidecar] config load failed: %v", err)
 			return
 		}
-		if !settings.DeezerEnabled {
+		if !settings.SidecarEnabled {
 			return
 		}
 		a.sidecar = backend.NewDeezerSidecar("data", settings.PythonPath)
@@ -71,6 +71,10 @@ func (a *App) startup(ctx context.Context) {
 			})
 			return
 		}
+		// Notify frontend when the sidecar status changes (e.g. process exit).
+		a.sidecar.SetOnStatusChange(func(st backend.SidecarStatus) {
+			wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+		})
 		// Forward sidecar events to the frontend.
 		go func() {
 			for ev := range a.sidecar.EventChan() {
@@ -259,7 +263,7 @@ func (a *App) LoadSettings() map[string]interface{} {
 		"link_resolver":            s.LinkResolver,
 		"auto_order":               s.AutoOrder,
 		"separator":                s.Separator,
-		"deezer_enabled":           s.DeezerEnabled,
+		"sidecar_enabled":          s.SidecarEnabled,
 		"python_path":              s.PythonPath,
 	}
 }
@@ -336,7 +340,7 @@ func (a *App) GetSettings() map[string]interface{} {
 			"link_resolver":            defaults.LinkResolver,
 			"auto_order":               defaults.AutoOrder,
 			"separator":                defaults.Separator,
-			"deezerEnabled":            defaults.DeezerEnabled,
+			"sidecarEnabled":           defaults.SidecarEnabled,
 			"pythonPath":               defaults.PythonPath,
 		}
 	}
@@ -355,6 +359,8 @@ func (a *App) GetSettings() map[string]interface{} {
 		"link_resolver":            s.LinkResolver,
 		"auto_order":               s.AutoOrder,
 		"separator":                s.Separator,
+		"sidecarEnabled":           s.SidecarEnabled,
+		"pythonPath":               s.PythonPath,
 	}
 }
 
@@ -435,8 +441,13 @@ func (a *App) SaveSettings(s map[string]interface{}) error {
 		bs.Separator = v
 	}
 	// Sidecar / Deezer settings.
-	if v, ok := s["deezer_enabled"].(bool); ok {
-		bs.DeezerEnabled = v
+	if v, ok := s["sidecarEnabled"].(bool); ok {
+		bs.SidecarEnabled = v
+	} else if v, ok := s["sidecar_enabled"].(bool); ok {
+		bs.SidecarEnabled = v
+	} else if v, ok := s["deezer_enabled"].(bool); ok {
+		// Legacy key.
+		bs.SidecarEnabled = v
 	}
 	if v, ok := s["python_path"].(string); ok {
 		bs.PythonPath = v
@@ -794,6 +805,9 @@ func (a *App) RestartSidecar() error {
 	if err := a.sidecar.Start(); err != nil {
 		return err
 	}
+	a.sidecar.SetOnStatusChange(func(st backend.SidecarStatus) {
+		wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+	})
 	wailsruntime.EventsEmit(a.ctx, "sidecar:status", a.sidecar.Status())
 	// Restart event stream.
 	go func() {
