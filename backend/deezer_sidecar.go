@@ -635,12 +635,17 @@ func isRealPython(exe string) bool {
 func resolveSidecarScriptPath() (string, error) {
 	candidates := []string{}
 
-	// Candidate 1: relative to the executable (build/bin/Lymuru.exe → ../../sidecar/).
+	// Candidate 1: sidecar alongside the executable (release zip layout).
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "sidecar", "deezload.py"))
+	}
+
+	// Candidate 2: relative to the executable (build/bin/Lymuru.exe → ../../sidecar/).
 	if exe, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "..", "sidecar", "deezload.py"))
 	}
 
-	// Candidate 2: relative to current working directory (running from repo root).
+	// Candidate 3: relative to current working directory (running from repo root).
 	if cwd, err := os.Getwd(); err == nil {
 		candidates = append(candidates, filepath.Join(cwd, "sidecar", "deezload.py"))
 	}

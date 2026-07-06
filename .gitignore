@@ -17,9 +17,10 @@ node_modules/
 frontend/wailsjs/
 
 # Wails build artifacts
-build/
-bin/
-frontend/dist/
+/build/*
+!/build/appicon.png
+/bin/
+/frontend/dist/
 *.exe
 *.app
 *.dmg
