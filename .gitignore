@@ -24,6 +24,9 @@ frontend/dist/
 *.app
 *.dmg
 
+# Keep app icon source (required for Wails to embed into .exe)
+!build/appicon.png
+
 
 # IDE
 .vscode/
