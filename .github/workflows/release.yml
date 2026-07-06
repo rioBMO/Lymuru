@@ -42,26 +42,16 @@ jobs:
       - name: Wails build
         run: wails build
 
-      - name: Prepare release files
-        run: |
-          $dir = "release\Lymuru"
-          New-Item -ItemType Directory -Path $dir -Force | Out-Null
-          Copy-Item "build\bin\Lymuru.exe" "$dir\" -Force
-          Copy-Item -Recurse "sidecar" "$dir\" -Force
-          Copy-Item "README.md" "$dir\" -Force
-          Copy-Item "LICENSE" "$dir\" -Force
-
-      - name: Create release zip
+      - name: Rename binary with version
         run: |
           $tag = "${{ github.ref_name }}"
-          $version = $tag -replace '^v',''
-          Compress-Archive -Path "release\Lymuru\*" -DestinationPath "Lymuru-v$version-windows-amd64.zip"
+          Rename-Item "build\bin\Lymuru.exe" "Lymuru-$tag.exe"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          files: Lymuru-v*-windows-amd64.zip
+          files: build\bin\Lymuru-v*.exe
           draft: false
           prerelease: false
           generate_release_notes: true
