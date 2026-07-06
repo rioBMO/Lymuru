@@ -62,6 +62,34 @@ func (d *DB) migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_history_status ON history(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at)`,
+		`CREATE TABLE IF NOT EXISTS download_history (
+			id TEXT PRIMARY KEY,
+			spotify_id TEXT,
+			title TEXT NOT NULL,
+			artists TEXT,
+			album TEXT,
+			duration_str TEXT,
+			cover_url TEXT,
+			quality TEXT,
+			format TEXT,
+			path TEXT,
+			source TEXT,
+			timestamp INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_download_history_timestamp ON download_history(timestamp)`,
+		`CREATE TABLE IF NOT EXISTS fetch_history (
+			id TEXT PRIMARY KEY,
+			url TEXT,
+			type TEXT NOT NULL,
+			name TEXT NOT NULL,
+			info TEXT,
+			image TEXT,
+			data TEXT,
+			is_explicit INTEGER DEFAULT 0,
+			timestamp INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_fetch_history_timestamp ON fetch_history(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_fetch_history_type ON fetch_history(type)`,
 		`CREATE TABLE IF NOT EXISTS settings (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL

@@ -518,6 +518,14 @@ async def sidecar_method_search(params: dict[str, Any]) -> dict[str, Any]:
     return {"results": results_to_json(results), "search_key": key}
 
 
+async def sidecar_method_connect(_params: dict[str, Any]) -> dict[str, Any]:
+    """Connect to Telegram proactively (triggers auth flow if needed)."""
+    global _sidecar_client
+    if _sidecar_client is None:
+        _sidecar_client = await connect_telegram_sidecar()
+    return {"status": "connected"}
+
+
 _sidecar_searches: dict[str, InlineResults] = {}
 
 # Pending lyrics choices: task_id → {file_path, original, romanized, is_synced}.
@@ -750,6 +758,7 @@ def sidecar_method_set_settings(params: dict[str, Any]) -> dict[str, Any]:
 
 _SIDECAR_METHODS = {
     "ping": sidecar_method_ping,
+    "connect": sidecar_method_connect,
     "search": sidecar_method_search,
     "download": sidecar_method_download,
     "download_link": sidecar_method_download_link,

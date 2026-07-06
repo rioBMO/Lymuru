@@ -1,80 +1,261 @@
-# Lymuru - Developer & Contributor Guide
+# Lymuru — Developer Guide
 
-Welcome to the Lymuru developer documentation! This guide will help you understand the project structure, how to set up your local development environment, and the coding standards we follow.
+This guide covers local development setup, architecture, and contribution guidelines for Lymuru.
 
-## Local Development Setup 🛠️
+---
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Tech Stack
 
-2. **Configure Environment:**
-   Create a `.env` file based on `.env.example`:
-   ```env
-   API_TOKEN=your_api_token_to_login
-   TELEGRAM_API_ID=your_api_id
-   TELEGRAM_API_HASH=your_api_hash
-   TELEGRAM_PHONE=+628xxxxxxxxxx
-   ```
+| Layer | Technology |
+|-------|-----------|
+| **Desktop shell** | [Wails v2](https://wails.io) — wraps a Go backend + WebView frontend into a native executable |
+| **Backend** | Go — provider integrations, download orchestration, lyrics, tagging, FFmpeg, SQLite |
+| **Frontend** | React 19 + TypeScript + Vite 8 + [Tailwind CSS v4](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com) primitives |
+| **Package manager** | [Bun](https://bun.sh) |
+| **Database** | SQLite via [`modernc.org/sqlite`](https://pkg.go.dev/modernc.org/sqlite) (pure Go, no CGo) |
+| **Sidecar** | Python 3.11+ with [Telethon](https://github.com/LonamiWebs/Telethon) (Deezer via Telegram bot) |
 
-3. **Authenticate (First Time Only):**
-   Run the bot core directly to generate the Telegram session file (`deezload_session.session`).
-   ```bash
-   python deezload.py
-   ```
+---
 
-4. **Run the Backend (FastAPI):**
-   The backend also serves the static UI files.
-   ```bash
-   uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-   ```
+## Prerequisites
 
-5. **Access the App:**
-   Open `http://localhost:8000` in your browser.
+- **Go 1.25+** — [download](https://go.dev/dl/)
+- **Bun** — [install](https://bun.sh)
+- **Wails CLI** — `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- **Python 3.11+** *(optional)* — only needed for the Deezer sidecar
+- **Windows 10/11** — the primary development target (Wails supports macOS/Linux too)
 
-## Project Structure 📁
+---
 
-```text
-backend/          # FastAPI API server and routing
-lymuru-web/       # Static UI assets (HTML/CSS/JS)
-assets/           # UI images and mascots
-downloads/        # Downloaded FLAC and LRC output files
-uploads/          # User uploaded files for processing (FLAC/LRC)
-sessions/         # Telegram session storage
-deezload.py       # Core logic: Telegram bot automation (Telethon)
+## First-Time Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/lymuru/lymuru.git
+cd Lymuru
+
+# Install frontend dependencies
+cd frontend
+bun install
+cd ..
+
+# Verify everything builds
+wails build
 ```
 
-## Core Libraries 📚
+---
 
-- **Telethon**: Async Telegram API client used in `deezload.py` to interact with `@deezload2bot`.
-- **FastAPI + Uvicorn**: High-performance backend framework.
-- **mutagen**: Used for reading and embedding metadata into FLAC audio files.
-- **requests**: For querying the LRCLIB API.
-- **pykakasi, pypinyin, korean-romanizer**: Tools for parsing and romanizing CJK lyrics.
+## Development Workflow
 
-## API Endpoints 🔌
+```bash
+# Start the dev server (hot reload for Go + React)
+wails dev
 
-- `GET /api/health` - Server health check
-- `GET /api/telegram/status` - Check Telegram session status
-- `POST /api/search` - Search tracks (artist, title)
-- `POST /api/downloads/choose` - Initiate download for a specific track
-- `POST /api/downloads/choose-lyrics` - Select and download lyrics
-- `POST /api/lyrics/add` - Append lyrics to an existing track
-- `POST /api/lyrics/embed` - Embed LRC data into a FLAC file
-- `POST /api/lyrics/romanize` - Romanize a given LRC file
-- `POST /api/lyrics/extract` - Extract LRC from a FLAC file
-- `POST /api/downloads/link` - Download via direct Spotify/Deezer link
-- `GET /api/downloads/progress/{task_id}` - Poll for task status
-- `GET /api/task-files/{task_id}` - Get resulting files from a task
-- `GET /api/files/{filename}` - Serve static/downloaded files
+# Build the native executable
+wails build
+# Output: build/bin/Lymuru.exe
 
-## Coding Standards & Contribution Guidelines 🤝
+# Run Go tests
+go test ./backend/...
 
-1. **Keep it Simple**: Write clear and explicit code. Avoid unnecessary abstractions.
-2. **Comment Generously**: Ensure complex logic, especially within `deezload.py` and the FastAPI routers, is well-documented with inline comments and docstrings. We want this codebase to be accessible to junior developers.
-3. **Type Hinting**: Use Python type hints in function signatures to make inputs and outputs predictable.
-4. **Error Handling**: Do not silently swallow errors. Fail gracefully and return clear HTTP error codes via FastAPI.
-5. **License**: All contributions fall under the [MIT License](LICENSE). 
+# Run frontend tests (if added later)
+cd frontend && bun test
+```
 
-By contributing, you agree to release your code under the MIT License. Happy coding!
+### What `wails dev` does
+
+1. Starts the Vite dev server for the React frontend with HMR.
+2. Compiles and launches the Go backend with the Wails runtime.
+3. Opens a native window pointing at the Vite dev server.
+4. Any change to `frontend/src/` or Go files triggers automatic rebuild/reload.
+
+### Production build
+
+`wails build` compiles the frontend to static files, embeds them into the Go binary via `//go:embed`, and produces a single self-contained `.exe` (or platform-appropriate binary). No separate web server or Python process is required — though the Deezer sidecar remains an optional subprocess.
+
+---
+
+## Architecture
+
+### How it works
+
+```
+┌─────────────────────────────────────────┐
+│               Native Window              │
+│  ┌─────────────────────────────────────┐ │
+│  │          WebView (Edge/WebKit)       │ │
+│  │  ┌───────────────────────────────┐  │ │
+│  │  │   React Frontend (Vite)       │  │ │
+│  │  │   calls Go functions via      │  │ │
+│  │  │   generated Wails bindings    │  │ │
+│  │  └──────────┬────────────────────┘  │ │
+│  └─────────────┼───────────────────────┘ │
+│                │ IPC (Wails bridge)       │
+│  ┌─────────────▼───────────────────────┐ │
+│  │         Go Backend                  │ │
+│  │  • Download providers (Tidal, etc.) │ │
+│  │  • Sidecar manager (Deezer)         │ │
+│  │  • SQLite (history, settings)       │ │
+│  │  • FFmpeg, tagging, lyrics          │ │
+│  └──────────┬──────────────────────────┘ │
+│             │ stdin/stdout JSON-RPC      │
+│  ┌──────────▼──────────────────────────┐ │
+│  │   Python Sidecar (optional)          │ │
+│  │   deezload.py — Deezer via Telegram  │ │
+│  └─────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+### Frontend ↔ Backend communication
+
+The React frontend never makes HTTP requests. Instead, it calls Go functions directly via auto-generated Wails bindings:
+
+```typescript
+// TypeScript (frontend)
+import { SearchTracks, DownloadTrack } from '../../wailsjs/go/main/App';
+
+const results = await SearchTracks(query, source);
+const itemId = await AddToDownloadQueue(id, name, artist, album);
+```
+
+```go
+// Go (app.go / app_downloads.go)
+func (a *App) SearchTracks(query, source string) ([]SearchResult, error) { ... }
+func (a *App) AddToDownloadQueue(spotifyID, trackName, artistName, albumName string) string { ... }
+```
+
+The `wailsjs/` directory is auto-generated by Wails and **gitignored** — it appears after running `wails dev` or `wails build`.
+
+### Real-time updates (events)
+
+The backend pushes real-time updates to the frontend via Wails events:
+
+```go
+// Go — emit an event
+runtime.EventsEmit(ctx, "download:progress", payload)
+```
+
+```typescript
+// TypeScript — listen for events
+import { EventsOn } from '../../wailsjs/runtime/runtime';
+
+EventsOn('download:progress', (payload) => { ... });
+```
+
+Key events:
+- `download:progress` — per-track download status
+- `download:queue-update` — queue additions/removals
+- `sidecar:status` — sidecar process state (running/stopped/error)
+- `auth_needed` — sidecar requires Telegram verification code
+- `auth_success` — sidecar authenticated successfully
+
+### Deezer sidecar protocol
+
+The Python sidecar (`sidecar/deezload.py`) runs as a long-lived subprocess communicating via **JSON-RPC over stdin/stdout**:
+
+```
+→ {"jsonrpc":"2.0","method":"search","id":"1","params":{"query":"artist - title"}}
+← {"jsonrpc":"2.0","result":[{...tracks...}],"id":"1"}
+
+→ {"jsonrpc":"2.0","method":"download","id":"2","params":{"track_id":"..."}}
+← ... (progress events on stderr) ...
+← {"jsonrpc":"2.0","result":{"file_path":"..."},"id":"2"}
+```
+
+Events (progress, auth prompts) are emitted as JSON lines on **stderr** so they don't interfere with the RPC stream on stdout.
+
+---
+
+## Key Backend Packages
+
+| File | Responsibility |
+|------|---------------|
+| `backend/tidal.go` | Tidal API integration (search, stream URLs, metadata) |
+| `backend/qobuz.go` / `qobuz_api.go` | Qobuz provider |
+| `backend/amazon.go` | Amazon Music provider |
+| `backend/deezer_sidecar.go` | Starts/stops `deezload.py`, translates JSON-RPC calls |
+| `backend/spotfetch.go` | Scrapes Spotify for track/album metadata (no auth needed) |
+| `backend/progress.go` | In-memory download queue with status transitions |
+| `backend/history.go` | SQLite-backed download history (CRUD) |
+| `backend/config.go` | User settings (theme, downloads folder, provider order) |
+| `backend/ffmpeg.go` / `ffmpeg_windows.go` | FFmpeg discovery and auto-download |
+| `backend/ffmpeg_convert.go` | Audio format conversion |
+| `backend/resample.go` | Sample-rate resampling |
+| `backend/analysis.go` | Audio spectrum analysis |
+| `backend/lyrics.go` | LRCLIB lyrics fetching |
+| `backend/lyrics_reader.go` | LRC parsing and embedding |
+| `backend/romanize.go` | CJK romanization (Romaji, Pinyin, Korean) |
+| `backend/tagging.go` | FLAC/MP3/M4A metadata tagging |
+| `backend/logger.go` | Structured file logger (`data/logs/lymuru.log`) |
+| `backend/keychain.go` | Credential storage via OS keychain |
+| `backend/storage/db.go` | SQLite connection and schema management |
+| `backend/link_resolver.go` / `songlink.go` | Multi-platform link resolution |
+
+---
+
+## Frontend Structure
+
+```
+frontend/src/
+├── components/
+│   ├── pages/
+│   │   └── HomePage.tsx          # Main search page with tabs
+│   ├── SearchBar.tsx             # Search input + source selector
+│   ├── TrackList.tsx             # Search results list
+│   ├── DownloadQueue.tsx         # Queue dialog
+│   ├── DownloadProgressToast.tsx # Toast notifications
+│   ├── HistoryPage.tsx           # Download history
+│   ├── SettingsPage.tsx          # Settings (tabs: General, Appearance, Deezer, Status)
+│   ├── FileManagerPage.tsx       # Downloaded files browser
+│   ├── LyricsManagerPage.tsx     # Lyrics tools (fetch, embed, extract, romanize)
+│   ├── AudioConverterPage.tsx    # Format converter
+│   ├── AudioAnalysisPage.tsx     # Spectrum analyzer
+│   ├── AudioResamplerPage.tsx    # Sample-rate resampler
+│   ├── ApiStatusTab.tsx          # Service health dashboard
+│   ├── AuthDialog.tsx            # Telegram verification code dialog
+│   ├── TitleBar.tsx              # Custom frameless title bar
+│   ├── Sidebar.tsx               # Icon-only navigation sidebar
+│   ├── PreviewPlayer.tsx         # In-app preview playback
+│   └── ui/                       # shadcn/ui primitives (button, dialog, tabs, etc.)
+├── hooks/
+│   ├── useDownload.ts            # Download orchestration hook
+│   ├── useSettings.ts            # Settings state management
+│   └── useDownloadQueueData.ts   # Queue polling hook
+├── lib/
+│   ├── settings.ts               # Settings type definitions + defaults
+│   ├── preview-player.ts         # Preview playback logic
+│   └── themes.ts                  # Theme token definitions
+└── App.tsx                       # Root component (page switching, event wiring)
+```
+
+---
+
+## Settings & Database
+
+### SQLite (`data/lymuru.db`)
+
+Created automatically on first launch. Tables:
+- `downloads` — completed download records (track name, artist, album, source, file path, timestamp)
+- `settings` — key-value store for all user preferences
+
+The storage layer uses `modernc.org/sqlite` — a pure-Go SQLite implementation requiring **no CGo**, which keeps cross-compilation simple.
+
+### OS Keychain
+
+Telegram API credentials (API ID, API Hash, phone number) are stored in the **OS keychain** (Windows Credential Manager, macOS Keychain, Linux Secret Service) via [`github.com/zalando/go-keyring`](https://github.com/zalando/go-keyring). They are never written to the SQLite database or log files.
+
+---
+
+## Coding Guidelines
+
+1. **Correctness first** — handle errors explicitly; never silently swallow them.
+2. **Keep it simple** — avoid unnecessary abstractions. Extract helpers only when they remove real duplication.
+3. **Follow existing patterns** — new Go files mirror the style in `backend/` (one responsibility per file). New React components follow shadcn/ui conventions.
+4. **Comment on "why", not "what"** — the code should be self-documenting for the "what".
+5. **Validate inputs at boundaries** — fail fast with clear error messages.
+
+---
+
+## License
+
+All contributions fall under the [MIT License](LICENSE).

@@ -1,11 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { AddLyrics } from "@/lib/api";
-import { useTaskProgress } from "@/hooks/useTaskProgress";
 import { useToast } from "@/components/Toast";
 import { FileUpload } from "@/components/FileUpload";
-import { TaskProgress } from "@/components/TaskProgress";
-import { LyricsChoice } from "@/components/LyricsChoice";
-import { DownloadFiles } from "@/components/DownloadFiles";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,33 +11,24 @@ export function AddLyricsTab() {
   const [artist, setArtist] = useState("");
   const [title, setTitle] = useState("");
   const [showMeta, setShowMeta] = useState(false);
-  const { state, start, reset } = useTaskProgress();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!file) return;
-    reset();
+    setIsSubmitting(true);
     try {
       const resp = await AddLyrics(
         file,
         artist.trim(),
         title.trim(),
       );
-      start(resp.task_id);
+      toast(resp, "success");
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed", "error");
-    }
-  }
-
-  async function handleLyricsChoice(choice: "original" | "romanized") {
-    if (state.status !== "choosing") return;
-    try {
-      // In Wails mode, lyrics choice is interactive; the user can pick
-      // the file from the original/romanized output via the OpenFolder button.
-      toast("Lyrics embedded; use the buttons to view the result.", "success");
-    } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed", "error");
+      toast(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -74,20 +61,12 @@ export function AddLyricsTab() {
                 />
               </div>
             )}
-            <Button type="submit" disabled={!file}>
-              Add Lyrics
+            <Button type="submit" disabled={!file || isSubmitting}>
+              {isSubmitting ? "Adding Lyrics..." : "Add Lyrics"}
             </Button>
           </form>
         </CardContent>
       </Card>
-      {state.status === "running" && <TaskProgress taskId={state.taskId} />}
-      {state.status === "choosing" && <LyricsChoice onChoose={handleLyricsChoice} />}
-      {state.status === "done" && <DownloadFiles files={state.files} />}
-      {state.status === "error" && (
-        <div className="bg-destructive/10 text-destructive border border-destructive rounded-xl p-4 text-sm text-center">
-          {state.message}
-        </div>
-      )}
     </div>
   );
 }

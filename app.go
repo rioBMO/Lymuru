@@ -2,15 +2,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/lymuru/lymuru/backend"
 	"github.com/lymuru/lymuru/backend/storage"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -25,18 +24,8 @@ type App struct {
 	tasks   *backend.TaskManager
 	history *backend.History
 	config  *backend.Config
-	sidecar *backend.Sidecar
+	sidecar *backend.DeezerSidecar
 	started bool
-
-	// Durable copy of the most recent sidecar:status event so the
-	// frontend can retrieve it via GetSidecarInfo even if it missed
-	// the real-time event (race between EventsOn subscription and the
-	// first EmitStatus).
-	lastSidecarStatus  string
-	lastSidecarMessage string
-	lastSidecarLogs    []string
-	lastPythonPath     string
-	lastScriptPath     string
 }
 
 // NewApp creates a new App. Call SetStorage before startup.
@@ -63,248 +52,61 @@ func (a *App) startup(ctx context.Context) {
 	a.started = true
 	a.mu.Unlock()
 
-	go a.bootSidecar(ctx)
-}
-
-// bootSidecar launches (or re-launches) the Python sidecar and wires up
-// its event handlers. Always emits a status event so the UI is updated
-// even on failure.
-func (a *App) bootSidecar(ctx context.Context) {
-	logSidecar("bootSidecar: entered")
-	defer func() {
-		if r := recover(); r != nil {
-			logSidecar(fmt.Sprintf("bootSidecar: PANIC: %v", r))
-		}
-		logSidecar("bootSidecar: leaving")
-	}()
-
-	// Stop any existing sidecar first (safe no-op if none running).
-	a.mu.Lock()
-	old := a.sidecar
-	a.sidecar = nil
-	a.mu.Unlock()
-	if old != nil {
-		old.Stop()
-	}
-
-	// Resolve the Python executable. If the user has set a path in
-	// Settings, that takes priority; otherwise we auto-discover.
-	pythonPath := a.resolvePythonPath()
-	logSidecar(fmt.Sprintf("bootSidecar: python=%s", pythonPath))
-
-	// Find the sidecar script.
-	scriptPath, err := a.findSidecarScript()
-	if err != nil {
-		logSidecar(fmt.Sprintf("bootSidecar: findSidecarScript FAILED: %s", err.Error()))
-		a.storeSidecarError("sidecar script not found: " + err.Error())
-		backend.EmitStatus(ctx, backend.SidecarStatusError, err.Error())
-		return
-	}
-	logSidecar(fmt.Sprintf("bootSidecar: script=%s", scriptPath))
-	a.mu.Lock()
-	a.lastScriptPath = scriptPath
-	a.mu.Unlock()
-
-	// Use the script's directory as the working directory so that
-	// deezload.py can locate its sibling `.env` file.
-	workDir := filepath.Dir(scriptPath)
-	logSidecar(fmt.Sprintf("bootSidecar: workDir=%s", workDir))
-
-	// Best-effort: if the script lives in the per-user extract dir
-	// (production build) and the .env lives somewhere else, copy it
-	// over so deezload.py's `load_dotenv()` finds it. We do not error
-	// out if this fails — the user can drop the file there manually.
-	extraEnv := a.copyDotEnvIfMissing(workDir)
-	logSidecar(fmt.Sprintf("bootSidecar: extraEnv keys=%d", len(extraEnv)))
-
-	sidecar, err := backend.NewSidecar(backend.SidecarConfig{
-		PythonBinary: pythonPath,
-		ScriptPath:   scriptPath,
-		WorkDir:      workDir,
-		ExtraEnv:     extraEnv,
-	})
-	if err != nil {
-		logSidecar(fmt.Sprintf("bootSidecar: NewSidecar FAILED: %s", err.Error()))
-		a.storeSidecarError("sidecar init: " + err.Error())
-		backend.EmitStatus(ctx, backend.SidecarStatusError, "sidecar init: "+err.Error())
-		return
-	}
-	a.mu.Lock()
-	a.sidecar = sidecar
-	a.mu.Unlock()
-
-	handler := backend.NewSidecarEventHandler(ctx, a.tasks, a.history)
-
-	// Wrap OnStatus so every change is also stored durably in the App
-	// struct.  This lets GetSidecarInfo return the latest state even
-	// when the frontend missed the real-time Wails event.
-	sidecar.SetHandlers(handler.OnEvent, func(status, message string) {
-		a.mu.Lock()
-		a.lastSidecarStatus = status
-		a.lastSidecarMessage = message
-		a.lastSidecarLogs = sidecar.Logs()
-		a.mu.Unlock()
-		handler.OnStatus(status, message)
-	})
-
-	logSidecar("bootSidecar: calling sidecar.Start()...")
-	if err := sidecar.Start(ctx); err != nil {
-		logSidecar(fmt.Sprintf("bootSidecar: sidecar.Start FAILED: %s", err.Error()))
-		a.storeSidecarError("sidecar start: " + err.Error())
-		backend.EmitStatus(ctx, backend.SidecarStatusError, "sidecar start: "+err.Error())
-		return
-	}
-	logSidecar("bootSidecar: sidecar.Start returned OK")
-
-	// Forward current settings to the sidecar (downloads folder, etc.).
+	// Start the Deezer sidecar if enabled.
 	go func() {
-		s, err := a.config.Load()
+		settings, err := a.config.Load()
 		if err != nil {
+			backend.LogWarn("[Sidecar] config load failed: %v", err)
 			return
 		}
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		_, _ = sidecar.Request(ctx, "set_settings", map[string]any{
-			"downloads_folder": s.DownloadsFolder,
-			"export_lrc_file":  s.ExportLrcFile,
-		})
-	}()
-}
-
-// logSidecar appends a single line to sidecar.log next to the executable.
-// Best-effort: errors writing the log are silently ignored.
-func logSidecar(msg string) {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(filepath.Dir(exe), "sidecar.log"),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	f.WriteString(time.Now().Format("2006-01-02 15:04:05.000") + " " + msg + "\n")
-}
-
-// resolvePythonPath returns the Python executable to use. It first checks
-// the persisted Settings; if empty, falls back to auto-discovery.
-func (a *App) resolvePythonPath() string {
-	s, err := a.config.Load()
-	if err == nil && s.PythonPath != "" {
-		a.lastPythonPath = s.PythonPath
-		return s.PythonPath
-	}
-	path, err := backend.FindPythonExecutable()
-	if err != nil {
-		a.lastPythonPath = "python" // UI fallback
-		return "python"
-	}
-	a.lastPythonPath = path
-	return path
-}
-
-// storeSidecarError records a durable error status and message.
-func (a *App) storeSidecarError(msg string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.lastSidecarStatus = backend.SidecarStatusError
-	a.lastSidecarMessage = msg
-}
-
-// copyDotEnvIfMissing ensures the sidecar's workdir has a .env file.
-// If the file already exists in workdir, nothing is done. Otherwise we
-// look for one in a list of well-known locations and copy it over. We
-// also parse it and return Telegram credentials as env overrides so the
-// sidecar picks them up even if the copy step failed.
-func (a *App) copyDotEnvIfMissing(workDir string) map[string]string {
-	envPath := filepath.Join(workDir, ".env")
-	// If workdir already has a .env, just load it and return the vars.
-	if _, err := os.Stat(envPath); err == nil {
-		kv, _ := backend.LoadDotEnv(envPath)
-		return telegramEnv(kv)
-	}
-	// Otherwise, try to find a .env elsewhere and copy it in.
-	src := backend.FindDotEnv()
-	if src == "" {
-		return nil
-	}
-	if data, err := os.ReadFile(src); err == nil {
-		_ = os.WriteFile(envPath, data, 0o600)
-	}
-	kv, _ := backend.LoadDotEnv(src)
-	return telegramEnv(kv)
-}
-
-// telegramEnv extracts the Telegram credentials from a .env map. The
-// sidecar will use these in addition to (or in lieu of) its own dotenv
-// lookup.
-func telegramEnv(kv map[string]string) map[string]string {
-	out := map[string]string{}
-	for _, k := range []string{"TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_PHONE"} {
-		if v, ok := kv[k]; ok && v != "" {
-			out[k] = v
+		if !settings.SidecarEnabled {
+			return
 		}
-	}
-	return out
+		a.sidecar = backend.NewDeezerSidecar("data", settings.PythonPath)
+		if err := a.sidecar.Start(); err != nil {
+			backend.LogWarn("[Sidecar] start failed: %v", err)
+			wailsruntime.EventsEmit(a.ctx, "sidecar:status", backend.SidecarStatus{
+				Running: false,
+				Error:   err.Error(),
+			})
+			return
+		}
+		// Notify frontend when the sidecar status changes (e.g. process exit).
+		a.sidecar.SetOnStatusChange(func(st backend.SidecarStatus) {
+			wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+		})
+		// Forward sidecar events to the frontend.
+		go func() {
+			for ev := range a.sidecar.EventChan() {
+				wailsruntime.EventsEmit(a.ctx, "sidecar:event", ev)
+			}
+		}()
+		wailsruntime.EventsEmit(a.ctx, "sidecar:status", a.sidecar.Status())
+		// Auto-connect to Telegram. Blocks until connected or auth timeout.
+		go func() {
+			if err := a.sidecar.Connect(); err != nil {
+				backend.LogWarn("[Sidecar] connect failed: %v", err)
+				st := a.sidecar.Status()
+				st.Error = err.Error()
+				wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+			} else {
+				backend.LogInfo("[Sidecar] connected to Telegram")
+			}
+		}()
+	}()
 }
 
 // shutdown is called by Wails before the window closes.
 func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
-	s := a.sidecar
-	a.sidecar = nil
 	a.started = false
 	a.mu.Unlock()
-	if s != nil {
-		s.Stop()
+	if a.sidecar != nil {
+		a.sidecar.Stop()
 	}
 	if a.storage != nil {
 		_ = a.storage.Close()
 	}
-}
-
-func (a *App) findSidecarScript() (string, error) {
-	// On-disk candidates first. In dev mode (`wails dev`) the script
-	// lives at `sidecar/deezload.py` relative to the project root and
-	// changes are picked up on reload.
-	candidates := []string{
-		"sidecar/deezload.py",
-		"./sidecar/deezload.py",
-	}
-	// Common locations relative to the running executable.
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		// Same directory as the binary (post-build copy scenario):
-		//   build/bin/Lymuru.exe  ->  build/bin/sidecar/deezload.py
-		candidates = append(candidates, filepath.Join(dir, "sidecar", "deezload.py"))
-		// One level up (project-layout scenario):
-		//   build/bin/Lymuru.exe  ->  build/sidecar/deezload.py
-		candidates = append(candidates, filepath.Join(dir, "..", "sidecar", "deezload.py"))
-		// Two levels up (wails dev from project root):
-		//   Lymuru/build/bin/Lymuru.exe  ->  Lymuru/sidecar/deezload.py
-		candidates = append(candidates, filepath.Join(dir, "..", "..", "sidecar", "deezload.py"))
-	}
-	// User-wide install location (per-user, writable):
-	if cfg, err := os.UserConfigDir(); err == nil {
-		candidates = append(candidates, filepath.Join(cfg, "Lymuru", "sidecar", "deezload.py"))
-	}
-	if local, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(local, ".Lymuru", "sidecar", "deezload.py"))
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			abs, _ := filepath.Abs(p)
-			return abs, nil
-		}
-	}
-	// Fall back to extracting the script embedded in the binary. This
-	// makes the production build self-contained when no sidecar is
-	// shipped next to the executable.
-	if path, err := backend.ExtractEmbeddedSidecar(); err == nil {
-		return path, nil
-	}
-	return "", fmt.Errorf("sidecar script not found in any of: %v", candidates)
 }
 
 // ---------------------------------------------------------------------------
@@ -324,272 +126,174 @@ type SearchResponse struct {
 	SearchKey string         `json:"search_key"`
 }
 
-// DownloadResponse is returned by Download / DownloadLink.
-type DownloadResponse struct {
+// SidecarTaskResponse is returned by sidecar-queued tasks.
+type SidecarTaskResponse struct {
 	TaskID string `json:"task_id"`
 }
 
-// AuthState describes the current Telegram auth state.
-type AuthState struct {
-	State        string `json:"state"` // "authenticated" | "auth_required" | "unknown"
-	Phone        string `json:"phone,omitempty"`
-	SidecarReady bool   `json:"sidecar_ready"`
+// DownloadFFmpegResponse is returned by the DownloadFFmpeg binding.
+type DownloadFFmpegResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
 }
+
+// ConvertAudioRequest mirrors backend.ConvertAudioRequest for Wails binding.
+type ConvertAudioRequest struct {
+	InputFiles   []string `json:"input_files"`
+	OutputFormat string   `json:"output_format"`
+	Bitrate      string   `json:"bitrate"`
+	Codec        string   `json:"codec"`
+}
+
+// ResampleAudioRequest mirrors backend.ResampleRequest for Wails binding.
+type ResampleAudioRequest struct {
+	InputFiles []string `json:"input_files"`
+	SampleRate string   `json:"sample_rate"`
+	BitDepth   string   `json:"bit_depth"`
+}
+
+// ------------------------------------------
+// FFmpeg
+// ------------------------------------------
+
+func (a *App) CheckFFmpegInstalled() (bool, error) {
+	return backend.IsFFmpegInstalled()
+}
+
+func (a *App) DownloadFFmpeg() DownloadFFmpegResponse {
+	wailsruntime.EventsEmit(a.ctx, "ffmpeg:status", "starting")
+	err := backend.DownloadFFmpeg(func(progress int) {
+		wailsruntime.EventsEmit(a.ctx, "ffmpeg:progress", progress)
+	})
+	if err != nil {
+		wailsruntime.EventsEmit(a.ctx, "ffmpeg:status", "failed")
+		return DownloadFFmpegResponse{
+			Success: false,
+			Error:   err.Error(),
+		}
+	}
+	wailsruntime.EventsEmit(a.ctx, "ffmpeg:status", "completed")
+	return DownloadFFmpegResponse{
+		Success: true,
+	}
+}
+
+// History stubs — return empty results until real SQLite history is wired.
+func (a *App) GetDownloadHistory() []backend.DownloadHistoryItem {
+	items, err := a.history.GetDownloadHistoryItems()
+	if err != nil {
+		return nil
+	}
+	return items
+}
+func (a *App) ClearDownloadHistory() error { return a.history.ClearDownloadHistory() }
+func (a *App) GetFetchHistory() []backend.FetchHistoryItem {
+	items, err := a.history.GetFetchHistoryItems()
+	if err != nil {
+		return nil
+	}
+	return items
+}
+func (a *App) DeleteDownloadHistoryItem(id string) error {
+	return a.history.DeleteDownloadHistoryItem(id)
+}
+func (a *App) DeleteFetchHistoryItem(id string) error { return a.history.DeleteFetchHistoryItem(id) }
+func (a *App) ClearFetchHistoryByType(type_ string) error {
+	return a.history.ClearFetchHistoryByType(type_)
+}
+
+// Lyrics Manager
+
+func (a *App) ReadEmbeddedLyrics(filePath string) (*backend.EmbeddedLyrics, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.ReadEmbeddedLyrics(filePath)
+}
+
+func (a *App) ExtractLyricsToLRC(filePath string, overwrite bool) (*backend.ExtractLyricsResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.ExtractLyricsToLRC(filePath, overwrite)
+}
+
+func (a *App) SelectLyricsFiles() ([]string, error) {
+	files, err := backend.SelectLyricsFiles(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func (a *App) SelectLyricsFolder() (string, error) {
+	return backend.SelectLyricsFolder(a.ctx)
+}
+
+func (a *App) ScanLyricsFolder(dir string) ([]string, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("folder path is required")
+	}
+	return backend.ScanLyricsFolder(dir)
+}
+
+func (a *App) SaveLyrics(filePath string, lyrics string) (*backend.SaveLyricsResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.SaveLyrics(filePath, lyrics)
+}
+
+// GetDefaults returns default settings values. The frontend uses the
+// downloadPath field when no path has been configured yet.
+func (a *App) GetDefaults() map[string]interface{} {
+	return map[string]interface{}{
+		"downloadPath": backend.DefaultSettings().DownloadsFolder,
+	}
+}
+
+// LoadSettings returns settings from persistent storage. Returns nil on error
+// so the frontend falls back to localStorage.
+func (a *App) LoadSettings() map[string]interface{} {
+	s, err := a.config.Load()
+	if err != nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"theme_mode":               s.ThemeMode,
+		"downloads_folder":         s.DownloadsFolder,
+		"has_completed_onboarding": s.HasCompletedOnboarding,
+		"export_lrc_file":          s.ExportLrcFile,
+		"ffmpeg_path":              s.FFmpegPath,
+		"audio_source":             s.AudioSource,
+		"audio_format":             s.AudioFormat,
+		"filename_format":          s.FilenameFormat,
+		"customTidalApi":           s.CustomTidalAPI,
+		"customQobuzApi":           s.CustomQobuzAPI,
+		"existing_file_check_mode": s.ExistingFileCheckMode,
+		"link_resolver":            s.LinkResolver,
+		"auto_order":               s.AutoOrder,
+		"separator":                s.Separator,
+		"sidecar_enabled":          s.SidecarEnabled,
+		"python_path":              s.PythonPath,
+	}
+}
+
+// LoadFonts returns custom font definitions from persistent storage.
+func (a *App) LoadFonts() []map[string]interface{} {
+	return a.config.LoadFonts()
+}
+
+// SaveFonts persists custom font definitions.
+func (a *App) SaveFonts(f []map[string]interface{}) error {
+	return a.config.SaveFonts(f)
+}
+
+// ------------------------------------------
 
 // GetVersion returns the app version.
 func (a *App) GetVersion() string {
 	return backend.AppVersion()
-}
-
-// GetSidecarStatus returns the current sidecar status, preferring the
-// durable copy so late-arriving frontend subscribers still see the truth.
-func (a *App) GetSidecarStatus() string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.lastSidecarStatus != "" {
-		return a.lastSidecarStatus
-	}
-	if a.sidecar != nil {
-		return a.sidecar.Status()
-	}
-	return backend.SidecarStatusStopped
-}
-
-// GetSidecarLogs returns the most recent stderr lines emitted by the
-// sidecar. Useful for diagnosing startup failures (e.g. missing
-// Python dependencies) without having to dig through the OS logs.
-func (a *App) GetSidecarLogs() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.sidecar != nil {
-		return a.sidecar.Logs()
-	}
-	return a.lastSidecarLogs
-}
-
-// GetSidecarInfo returns a bundle of sidecar diagnostic info
-// (status, message, recent log lines, Python path, script dir).
-type SidecarInfo struct {
-	Status     string   `json:"status"`
-	Message    string   `json:"message"`
-	Logs       []string `json:"logs"`
-	ScriptDir  string   `json:"script_dir"`
-	PythonPath string   `json:"python_path"`
-}
-
-func (a *App) GetSidecarInfo() SidecarInfo {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	info := SidecarInfo{
-		PythonPath: a.lastPythonPath,
-		ScriptDir:  a.lastScriptPath,
-	}
-	// Prefer the live sidecar snapshot over the durable fields.
-	if a.sidecar != nil {
-		info.Status, info.Message, info.Logs = a.sidecar.Snapshot()
-		info.ScriptDir = filepath.Dir(a.sidecar.ScriptPath())
-	} else {
-		info.Status = a.lastSidecarStatus
-		info.Message = a.lastSidecarMessage
-		info.Logs = append([]string{}, a.lastSidecarLogs...)
-	}
-	if info.Status == "" {
-		info.Status = backend.SidecarStatusStopped
-	}
-	if info.PythonPath == "" {
-		info.PythonPath = "python"
-	}
-	return info
-}
-
-// TestSidecar kicks off a sidecar restart and returns immediately. The
-// frontend should poll GetSidecarInfo() to observe the result.
-type TestSidecarResponse struct {
-	OK      bool   `json:"ok"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
-
-func (a *App) TestSidecar() TestSidecarResponse {
-	if a.ctx == nil {
-		return TestSidecarResponse{OK: false, Status: "error", Message: "app not ready"}
-	}
-	logSidecar("TestSidecar: triggered")
-	go a.bootSidecar(a.ctx)
-	// Return immediately; the frontend polls GetSidecarInfo.
-	return TestSidecarResponse{OK: true, Status: "starting", Message: "Sidecar restart initiated"}
-}
-
-// GetAuthState returns whether the user is authenticated with Telegram.
-func (a *App) GetAuthState() AuthState {
-	a.mu.Lock()
-	s := a.sidecar
-	a.mu.Unlock()
-	state := AuthState{State: "unknown"}
-	if s == nil {
-		return state
-	}
-	switch s.Status() {
-	case backend.SidecarStatusAuth:
-		state.State = "auth_required"
-		// Phone is included in the status event; we can't easily get it here,
-		// so leave empty and let the sidecar emit auth:needed with the phone.
-	case backend.SidecarStatusOnline:
-		state.State = "authenticated"
-	case backend.SidecarStatusStarting, backend.SidecarStatusStopped:
-		state.State = "unknown"
-	case backend.SidecarStatusError:
-		state.State = "error"
-	}
-	state.SidecarReady = s.Status() != backend.SidecarStatusStopped
-	return state
-}
-
-// SubmitAuthCode forwards a Telegram verification code to the sidecar.
-func (a *App) SubmitAuthCode(code string) error {
-	a.mu.Lock()
-	s := a.sidecar
-	a.mu.Unlock()
-	if s == nil {
-		return errors.New("sidecar not running")
-	}
-	// Use a short timeout so the UI never freezes if the sidecar
-	// doesn't respond (e.g. because another handler blocked stdin).
-	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
-	defer cancel()
-	if _, err := s.Request(ctx, "submit_auth", map[string]any{"code": code}); err != nil {
-		return err
-	}
-	return nil
-}
-
-// SignOut is a no-op for now; the session file remains on disk. Users can
-// delete it manually if they want a clean re-auth.
-func (a *App) SignOut() error { return nil }
-
-// RestartSidecar stops the running sidecar (if any) and starts a fresh
-// one. The new status is emitted via the sidecar:status event.
-func (a *App) RestartSidecar() error {
-	if a.ctx == nil {
-		return errors.New("app not ready")
-	}
-	go a.bootSidecar(a.ctx)
-	return nil
-}
-
-// Search asks the sidecar to search for a track.
-func (a *App) Search(artist, title string) (SearchResponse, error) {
-	if a.ctx == nil {
-		return SearchResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return SearchResponse{}, errors.New("sidecar not running")
-	}
-	params := map[string]string{"artist": artist, "title": title}
-	resp, err := s.Request(a.ctx, "search", params)
-	if err != nil {
-		return SearchResponse{}, err
-	}
-	if !resp.OK {
-		return SearchResponse{}, errors.New(resp.Error)
-	}
-	// The sidecar returns a list of results and a search_key. We forward
-	// them as-is and let the frontend work with the shape.
-	var out SearchResponse
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
-		// Fall back to a generic shape.
-		return SearchResponse{}, fmt.Errorf("decode search result: %w", err)
-	}
-	return out, nil
-}
-
-// Download starts a download for the given search hit.
-func (a *App) Download(searchKey string, choice int, artist, title string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	taskID := uuid.NewString()
-	a.tasks.Add(backend.Task{
-		TaskID:    taskID,
-		TaskType:  "search_choose",
-		Query:     fmt.Sprintf("%s — %s", artist, title),
-		Stage:     "Queued",
-		Phase:     "preparing",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	params := map[string]any{
-		"task_id":    taskID,
-		"search_key": searchKey,
-		"choice":     choice,
-		"artist":     artist,
-		"title":      title,
-	}
-	resp, err := s.Request(a.ctx, "download", params)
-	if err != nil {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, err
-	}
-	if !resp.OK {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, errors.New(resp.Error)
-	}
-	return DownloadResponse{TaskID: taskID}, nil
-}
-
-// DownloadLink starts a download from a Spotify/Deezer link.
-func (a *App) DownloadLink(url string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	taskID := uuid.NewString()
-	a.tasks.Add(backend.Task{
-		TaskID:    taskID,
-		TaskType:  "link",
-		Query:     url,
-		Stage:     "Queued",
-		Phase:     "preparing",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	params := map[string]any{
-		"task_id": taskID,
-		"url":     url,
-	}
-	resp, err := s.Request(a.ctx, "download_link", params)
-	if err != nil {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, err
-	}
-	if !resp.OK {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, errors.New(resp.Error)
-	}
-	return DownloadResponse{TaskID: taskID}, nil
-}
-
-// ChooseLyrics tells the sidecar to continue with the chosen lyrics flavor.
-func (a *App) ChooseLyrics(taskID, choice string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	// Use the same taskID; the sidecar emits a complete event in-place.
-	params := map[string]any{"task_id": taskID, "choice": choice}
-	if _, err := s.Request(a.ctx, "choose_lyrics", params); err != nil {
-		return DownloadResponse{}, err
-	}
-	return DownloadResponse{TaskID: taskID}, nil
 }
 
 // GetTask returns a snapshot of a task by id.
@@ -627,34 +331,176 @@ func (a *App) ClearHistory() error {
 	return a.history.Clear()
 }
 
-// GetSettings returns the current settings.
-func (a *App) GetSettings() (backend.Settings, error) {
-	return a.config.Load()
-}
-
-// SaveSettings persists settings.
-func (a *App) SaveSettings(s backend.Settings) error {
-	if err := backend.EnsureDownloadsFolder(s.DownloadsFolder); err != nil {
-		return err
+// GetSettings returns the current settings as a map.
+func (a *App) GetSettings() map[string]interface{} {
+	s, err := a.config.Load()
+	if err != nil {
+		defaults := backend.DefaultSettings()
+		return map[string]interface{}{
+			"theme_mode":               defaults.ThemeMode,
+			"downloads_folder":         defaults.DownloadsFolder,
+			"has_completed_onboarding": defaults.HasCompletedOnboarding,
+			"export_lrc_file":          defaults.ExportLrcFile,
+			"ffmpeg_path":              defaults.FFmpegPath,
+			"audio_source":             defaults.AudioSource,
+			"audio_format":             defaults.AudioFormat,
+			"filename_format":          defaults.FilenameFormat,
+			"customTidalApi":           defaults.CustomTidalAPI,
+			"customQobuzApi":           defaults.CustomQobuzAPI,
+			"existing_file_check_mode": defaults.ExistingFileCheckMode,
+			"link_resolver":            defaults.LinkResolver,
+			"auto_order":               defaults.AutoOrder,
+			"separator":                defaults.Separator,
+			"sidecarEnabled":           defaults.SidecarEnabled,
+			"pythonPath":               defaults.PythonPath,
+		}
 	}
-	return a.config.Save(s)
+	return map[string]interface{}{
+		"theme_mode":               s.ThemeMode,
+		"downloads_folder":         s.DownloadsFolder,
+		"has_completed_onboarding": s.HasCompletedOnboarding,
+		"export_lrc_file":          s.ExportLrcFile,
+		"ffmpeg_path":              s.FFmpegPath,
+		"audio_source":             s.AudioSource,
+		"audio_format":             s.AudioFormat,
+		"filename_format":          s.FilenameFormat,
+		"customTidalApi":           s.CustomTidalAPI,
+		"customQobuzApi":           s.CustomQobuzAPI,
+		"existing_file_check_mode": s.ExistingFileCheckMode,
+		"link_resolver":            s.LinkResolver,
+		"auto_order":               s.AutoOrder,
+		"separator":                s.Separator,
+		"sidecarEnabled":           s.SidecarEnabled,
+		"pythonPath":               s.PythonPath,
+	}
 }
 
-// AddLyrics triggers an add-lyrics task on the sidecar.
-func (a *App) AddLyrics(filePath, artist, title string) (DownloadResponse, error) {
-	return a.simpleTask("add_lyrics", map[string]any{
-		"file_path": filePath,
-		"artist":    artist,
-		"title":     title,
-	}, fmt.Sprintf("Add lyrics: %s", filepath.Base(filePath)))
+// SaveSettings persists settings from a map (SpoitFLAC-compatible).
+// Accepts both snake_case and camelCase keys for robustness.
+func (a *App) SaveSettings(s map[string]interface{}) error {
+	var bs backend.Settings
+	// --- required fields ---
+	if v, ok := s["downloads_folder"].(string); ok && v != "" {
+		bs.DownloadsFolder = v
+	} else if v, ok := s["downloadPath"].(string); ok && v != "" {
+		bs.DownloadsFolder = v
+	}
+	if v, ok := s["theme_mode"].(string); ok {
+		bs.ThemeMode = v
+	} else if v, ok := s["themeMode"].(string); ok {
+		bs.ThemeMode = v
+	}
+	if v, ok := s["has_completed_onboarding"].(bool); ok {
+		bs.HasCompletedOnboarding = v
+	} else if v, ok := s["hasCompletedOnboarding"].(bool); ok {
+		bs.HasCompletedOnboarding = v
+	}
+	if v, ok := s["export_lrc_file"].(bool); ok {
+		bs.ExportLrcFile = v
+	} else if v, ok := s["exportLrcFile"].(bool); ok {
+		bs.ExportLrcFile = v
+	}
+	if v, ok := s["ffmpeg_path"].(string); ok {
+		bs.FFmpegPath = v
+	} else if v, ok := s["ffmpegPath"].(string); ok {
+		bs.FFmpegPath = v
+	}
+	if v, ok := s["audio_source"].(string); ok {
+		bs.AudioSource = v
+	} else if v, ok := s["audioSource"].(string); ok {
+		bs.AudioSource = v
+	} else if v, ok := s["downloader"].(string); ok {
+		bs.AudioSource = v
+	}
+	// --- additional backend fields ---
+	if v, ok := s["audio_format"].(string); ok {
+		bs.AudioFormat = v
+	} else if v, ok := s["audioFormat"].(string); ok {
+		bs.AudioFormat = v
+	}
+	if v, ok := s["filename_format"].(string); ok {
+		bs.FilenameFormat = v
+	} else if v, ok := s["filenameFormat"].(string); ok {
+		bs.FilenameFormat = v
+	}
+	if v, ok := s["customTidalApi"].(string); ok {
+		bs.CustomTidalAPI = v
+	} else if v, ok := s["custom_tidal_api"].(string); ok {
+		bs.CustomTidalAPI = v
+	}
+	if v, ok := s["customQobuzApi"].(string); ok {
+		bs.CustomQobuzAPI = v
+	} else if v, ok := s["custom_qobuz_api"].(string); ok {
+		bs.CustomQobuzAPI = v
+	}
+	if v, ok := s["existing_file_check_mode"].(string); ok {
+		bs.ExistingFileCheckMode = v
+	} else if v, ok := s["existingFileCheckMode"].(string); ok {
+		bs.ExistingFileCheckMode = v
+	}
+	if v, ok := s["link_resolver"].(string); ok {
+		bs.LinkResolver = v
+	} else if v, ok := s["linkResolver"].(string); ok {
+		bs.LinkResolver = v
+	}
+	if v, ok := s["auto_order"].(string); ok {
+		bs.AutoOrder = v
+	} else if v, ok := s["autoOrder"].(string); ok {
+		bs.AutoOrder = v
+	}
+	if v, ok := s["separator"].(string); ok {
+		bs.Separator = v
+	}
+	// Sidecar / Deezer settings.
+	if v, ok := s["sidecarEnabled"].(bool); ok {
+		bs.SidecarEnabled = v
+	} else if v, ok := s["sidecar_enabled"].(bool); ok {
+		bs.SidecarEnabled = v
+	} else if v, ok := s["deezer_enabled"].(bool); ok {
+		// Legacy key.
+		bs.SidecarEnabled = v
+	}
+	if v, ok := s["python_path"].(string); ok {
+		bs.PythonPath = v
+	} else if v, ok := s["pythonPath"].(string); ok {
+		bs.PythonPath = v
+	}
+	if bs.DownloadsFolder != "" {
+		if err := backend.EnsureDownloadsFolder(bs.DownloadsFolder); err != nil {
+			return err
+		}
+	}
+	return a.config.Save(bs)
 }
 
-// EmbedLrc triggers an embed-lrc task on the sidecar.
-func (a *App) EmbedLrc(flacPath, lrcPath string) (DownloadResponse, error) {
-	return a.simpleTask("embed_lrc", map[string]any{
-		"flac_path": flacPath,
-		"lrc_path":  lrcPath,
-	}, fmt.Sprintf("Embed LRC: %s", filepath.Base(flacPath)))
+// AddLyrics searches and embeds lyrics directly.
+func (a *App) AddLyrics(filePath, artist, title string) (string, error) {
+	lyrics, synced, err := backend.SearchLRCLIB(artist, title)
+	if err != nil {
+		return "", err
+	}
+	err = backend.EmbedLyrics(filePath, lyrics)
+	if err != nil {
+		return "", err
+	}
+	syncStr := "unsynced"
+	if synced {
+		syncStr = "synced"
+	}
+	return fmt.Sprintf("Embedded %s lyrics", syncStr), nil
+}
+
+// EmbedLrc embeds a local LRC file directly.
+func (a *App) EmbedLrc(flacPath, lrcPath string) (string, error) {
+	lrcBytes, err := os.ReadFile(lrcPath)
+	if err != nil {
+		return "", err
+	}
+	err = backend.EmbedLyrics(flacPath, string(lrcBytes))
+	if err != nil {
+		return "", err
+	}
+	return "LRC embedded successfully", nil
 }
 
 // RomanizeResult is the payload returned by RomanizeLrc.
@@ -664,24 +510,26 @@ type RomanizeResult struct {
 	Message     string `json:"message"`
 }
 
-// RomanizeLrc runs the romanize-lrc sidecar command.
+// RomanizeLrc romanizes an LRC file.
 func (a *App) RomanizeLrc(lrcPath string) (RomanizeResult, error) {
-	s := a.getSidecar()
-	if s == nil {
-		return RomanizeResult{}, errors.New("sidecar not running")
-	}
-	resp, err := s.Request(a.ctx, "romanize_lrc", map[string]any{"lrc_path": lrcPath})
+	lrcBytes, err := os.ReadFile(lrcPath)
 	if err != nil {
 		return RomanizeResult{}, err
 	}
-	if !resp.OK {
-		return RomanizeResult{}, errors.New(resp.Error)
+	romanized, changed := backend.RomanizeLyrics(string(lrcBytes))
+	if !changed {
+		return RomanizeResult{Message: "No CJK lyrics found for romanization"}, nil
 	}
-	var out RomanizeResult
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
-		return RomanizeResult{}, fmt.Errorf("decode result: %w", err)
+
+	outPath := strings.TrimSuffix(lrcPath, ".lrc") + "_rom.lrc"
+	if err := os.WriteFile(outPath, []byte(romanized), 0644); err != nil {
+		return RomanizeResult{}, err
 	}
-	return out, nil
+	return RomanizeResult{
+		Romanized:   romanized,
+		DownloadURL: outPath,
+		Message:     "Romanized successfully",
+	}, nil
 }
 
 // ExtractResult is the payload returned by ExtractLrc.
@@ -691,57 +539,21 @@ type ExtractResult struct {
 	OutputURL string `json:"output_url"`
 }
 
-// ExtractLrc runs the extract-lrc sidecar command.
+// ExtractLrc reads lyrics from the file's tags and writes to an LRC file.
 func (a *App) ExtractLrc(flacPath string) (ExtractResult, error) {
-	s := a.getSidecar()
-	if s == nil {
-		return ExtractResult{}, errors.New("sidecar not running")
-	}
-	resp, err := s.Request(a.ctx, "extract_lrc", map[string]any{"flac_path": flacPath})
+	lyrics, err := backend.ExtractLyrics(flacPath)
 	if err != nil {
 		return ExtractResult{}, err
 	}
-	if !resp.OK {
-		return ExtractResult{}, errors.New(resp.Error)
+	outPath := strings.TrimSuffix(flacPath, filepath.Ext(flacPath)) + ".lrc"
+	if err := os.WriteFile(outPath, []byte(lyrics), 0644); err != nil {
+		return ExtractResult{}, err
 	}
-	var out ExtractResult
-	if err := json.Unmarshal(resp.Result, &out); err != nil {
-		return ExtractResult{}, fmt.Errorf("decode result: %w", err)
-	}
-	return out, nil
-}
-
-func (a *App) simpleTask(method string, params map[string]any, query string) (DownloadResponse, error) {
-	if a.ctx == nil {
-		return DownloadResponse{}, errors.New("app not ready")
-	}
-	s := a.getSidecar()
-	if s == nil {
-		return DownloadResponse{}, errors.New("sidecar not running")
-	}
-	taskID := uuid.NewString()
-	a.tasks.Add(backend.Task{
-		TaskID:    taskID,
-		TaskType:  method,
-		Query:     query,
-		Stage:     "Queued",
-		Phase:     "preparing",
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	if params == nil {
-		params = map[string]any{}
-	}
-	params["task_id"] = taskID
-	resp, err := s.Request(a.ctx, method, params)
-	if err != nil {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, err
-	}
-	if !resp.OK {
-		a.tasks.Remove(taskID)
-		return DownloadResponse{}, errors.New(resp.Error)
-	}
-	return DownloadResponse{TaskID: taskID}, nil
+	return ExtractResult{
+		Lyrics:    lyrics,
+		IsSynced:  strings.Contains(lyrics, "[00:"),
+		OutputURL: outPath,
+	}, nil
 }
 
 // GetDownloadsPath returns the configured downloads folder.
@@ -805,8 +617,287 @@ func (a *App) PickFolder() (string, error) {
 	})
 }
 
-func (a *App) getSidecar() *backend.Sidecar {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.sidecar
+// SelectFolder opens a native folder dialog with a default path (SpoitFLAC settings page).
+func (a *App) SelectFolder(defaultPath string) (string, error) {
+	return backend.SelectFolderDialog(a.ctx, defaultPath)
+}
+
+// OpenConfigFolder opens the Lymuru data/config directory in the OS file explorer.
+func (a *App) OpenConfigFolder() error {
+	// Open the data directory where lymuru.db and config live.
+	cwd, _ := os.Getwd()
+	configDir := filepath.Join(cwd, "data")
+	if _, err := os.Stat(configDir); err != nil {
+		_ = os.MkdirAll(configDir, 0o755)
+	}
+	return a.OpenFolder(configDir)
+}
+
+// CheckCustomTidalAPI verifies a custom Tidal community API endpoint is reachable.
+func (a *App) CheckCustomTidalAPI(apiURL string) (bool, error) {
+	return backend.SimpleHealthCheck(apiURL)
+}
+
+// CheckCustomQobuzAPI verifies a custom Qobuz community API endpoint is reachable.
+func (a *App) CheckCustomQobuzAPI(apiURL string) (bool, error) {
+	return backend.SimpleHealthCheck(apiURL)
+}
+
+// ClearCommunityCooldown clears the global community API cooldown state.
+// Called by the frontend when a download succeeds during auto-fallback
+// to dismiss the cooldown banner.
+func (a *App) ClearCommunityCooldown() {
+	backend.ClearCommunityCooldown()
+}
+
+// ---------------------------------------------------------------------------
+// File Manager bindings
+// ---------------------------------------------------------------------------
+
+// ListDirectoryFiles returns the recursive contents of a directory.
+func (a *App) ListDirectoryFiles(dirPath string) ([]backend.FileInfo, error) {
+	if dirPath == "" {
+		return nil, fmt.Errorf("directory path is required")
+	}
+	return backend.ListDirectory(dirPath)
+}
+
+// ReadFileMetadata reads audio metadata (title, artist, album, etc.) from a file.
+func (a *App) ReadFileMetadata(filePath string) (*backend.AudioMetadata, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.ReadAudioMetadata(filePath)
+}
+
+// ReadTextFile reads a text file and returns its contents.
+func (a *App) ReadTextFile(filePath string) (string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+// ReadImageAsBase64 reads an image file and returns a base64 data URI.
+func (a *App) ReadImageAsBase64(filePath string) (string, error) {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	var mimeType string
+	switch ext {
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
+	case ".gif":
+		mimeType = "image/gif"
+	case ".webp":
+		mimeType = "image/webp"
+	default:
+		mimeType = "image/jpeg"
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(content)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
+}
+
+// PreviewRenameFiles generates filename previews for a batch rename operation.
+func (a *App) PreviewRenameFiles(files []string, format string) []backend.RenamePreview {
+	return backend.PreviewRename(files, format)
+}
+
+// RenameFilesByMetadata executes a batch rename using audio metadata.
+func (a *App) RenameFilesByMetadata(files []string, format string) []backend.RenameResult {
+	return backend.RenameFiles(files, format)
+}
+
+// RenameFileTo renames a single file to the given new name (without extension).
+func (a *App) RenameFileTo(oldPath, newName string) error {
+	dir := filepath.Dir(oldPath)
+	ext := filepath.Ext(oldPath)
+	newPath := filepath.Join(dir, newName+ext)
+	return os.Rename(oldPath, newPath)
+}
+
+// ---------------------------------------------------------------------------
+// Audio tools bindings
+// ---------------------------------------------------------------------------
+
+// SelectAudioFiles opens a file picker for selecting multiple audio files.
+func (a *App) SelectAudioFiles() ([]string, error) {
+	return backend.SelectMultipleFiles(a.ctx)
+}
+
+// ListAudioFilesInDir scans a directory for audio files and returns their info.
+func (a *App) ListAudioFilesInDir(dirPath string) ([]backend.FileInfo, error) {
+	if dirPath == "" {
+		return nil, fmt.Errorf("directory path is required")
+	}
+	return backend.ListAudioFiles(dirPath)
+}
+
+// GetFileSizes returns the file size in bytes for each path.
+func (a *App) GetFileSizes(files []string) map[string]int64 {
+	return backend.GetFileSizes(files)
+}
+
+// ConvertAudio converts one or more audio files to the requested format.
+func (a *App) ConvertAudio(req ConvertAudioRequest) ([]backend.ConvertAudioResult, error) {
+	if len(req.InputFiles) == 0 {
+		return nil, fmt.Errorf("no input files provided")
+	}
+	backendReq := backend.ConvertAudioRequest{
+		InputFiles:   req.InputFiles,
+		OutputFormat: req.OutputFormat,
+		Bitrate:      req.Bitrate,
+		Codec:        req.Codec,
+	}
+	return backend.ConvertAudio(backendReq)
+}
+
+// ResampleAudio resamples one or more audio files to the requested sample rate / bit depth.
+func (a *App) ResampleAudio(req ResampleAudioRequest) ([]backend.ResampleResult, error) {
+	if len(req.InputFiles) == 0 {
+		return nil, fmt.Errorf("no input files provided")
+	}
+	backendReq := backend.ResampleRequest{
+		InputFiles: req.InputFiles,
+		SampleRate: req.SampleRate,
+		BitDepth:   req.BitDepth,
+	}
+	return backend.ResampleAudio(backendReq)
+}
+
+// AnalyzeAudio returns ffprobe-derived audio quality metrics for a file.
+func (a *App) AnalyzeAudio(filePath string) (*backend.AnalysisResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.GetMetadataWithFFprobe(filePath)
+}
+
+// ---------------------------------------------------------------------------
+// Sidecar / Deezer bindings
+// ---------------------------------------------------------------------------
+
+// GetSidecarStatus returns the current sidecar state.
+func (a *App) GetSidecarStatus() backend.SidecarStatus {
+	if a.sidecar == nil {
+		return backend.SidecarStatus{Running: false}
+	}
+	return a.sidecar.Status()
+}
+
+// SubmitSidecarAuthCode forwards a Telegram auth code to the sidecar.
+func (a *App) SubmitSidecarAuthCode(code string) error {
+	if code == "" {
+		return fmt.Errorf("code is required")
+	}
+	if a.sidecar == nil {
+		return fmt.Errorf("sidecar not running")
+	}
+	return a.sidecar.SubmitAuthCode(code)
+}
+
+// RestartSidecar stops and restarts the sidecar subprocess.
+func (a *App) RestartSidecar() error {
+	if a.sidecar != nil {
+		a.sidecar.Stop()
+	}
+	settings, err := a.config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	a.sidecar = backend.NewDeezerSidecar("data", settings.PythonPath)
+	if err := a.sidecar.Start(); err != nil {
+		return err
+	}
+	a.sidecar.SetOnStatusChange(func(st backend.SidecarStatus) {
+		wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+	})
+	wailsruntime.EventsEmit(a.ctx, "sidecar:status", a.sidecar.Status())
+	// Restart event stream.
+	go func() {
+		for ev := range a.sidecar.EventChan() {
+			wailsruntime.EventsEmit(a.ctx, "sidecar:event", ev)
+		}
+	}()
+	// Auto-connect to Telegram.
+	go func() {
+		if err := a.sidecar.Connect(); err != nil {
+			backend.LogWarn("[Sidecar] connect failed: %v", err)
+			st := a.sidecar.Status()
+			st.Error = err.Error()
+			wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+		} else {
+			backend.LogInfo("[Sidecar] connected to Telegram")
+		}
+	}()
+	return nil
+}
+
+// ConnectSidecar triggers Telegram authentication without performing a search.
+// The sidecar either connects silently (existing session) or emits auth_needed
+// and waits for a verification code via SubmitSidecarAuthCode.
+func (a *App) ConnectSidecar() error {
+	if a.sidecar == nil {
+		return fmt.Errorf("sidecar not running")
+	}
+	return a.sidecar.Connect()
+}
+
+// TestSidecar sends a ping to verify the sidecar is responsive.
+func (a *App) TestSidecar() (bool, error) {
+	if a.sidecar == nil {
+		return false, fmt.Errorf("sidecar not running")
+	}
+	_, err := a.sidecar.Search("test", "test")
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// SetSidecarCredentials stores Telegram API credentials in the OS keychain.
+func (a *App) SetSidecarCredentials(apiID, apiHash, phone string) error {
+	if apiID == "" || apiHash == "" || phone == "" {
+		return fmt.Errorf("all credential fields are required")
+	}
+	return backend.SetSidecarCredentials(apiID, apiHash, phone)
+}
+
+// GetSidecarCredentials returns whether credentials are configured.
+func (a *App) HasSidecarCredentials() bool {
+	apiID, apiHash, phone := backend.GetSidecarCredentials()
+	return apiID != "" && apiHash != "" && phone != ""
+}
+
+// SidecarDownload enqueues a download via the Deezer sidecar.
+func (a *App) SidecarDownload(artist, title string) (map[string]interface{}, error) {
+	if a.sidecar == nil {
+		return nil, fmt.Errorf("sidecar not running")
+	}
+	// 1. Search for the track.
+	search, err := a.sidecar.Search(artist, title)
+	if err != nil {
+		return nil, fmt.Errorf("search: %w", err)
+	}
+	searchKey, _ := search["search_key"].(string)
+	if searchKey == "" {
+		return nil, fmt.Errorf("no results found")
+	}
+	// 2. Download the top result.
+	settings, _ := a.config.Load()
+	filePath, err := a.sidecar.Download(searchKey, 0, settings.DownloadsFolder, settings.ExportLrcFile)
+	if err != nil {
+		return nil, fmt.Errorf("download: %w", err)
+	}
+	return map[string]interface{}{
+		"file_path":  filePath,
+		"search_key": searchKey,
+	}, nil
 }

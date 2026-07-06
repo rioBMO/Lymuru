@@ -2,549 +2,659 @@ package backend
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// SidecarStatus values for the UI.
-const (
-	SidecarStatusStopped   = "stopped"
-	SidecarStatusStarting  = "starting"
-	SidecarStatusOnline    = "online"
-	SidecarStatusAuth      = "auth_required"
-	SidecarStatusError     = "error"
-)
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-// SidecarEvent is emitted by the Python sidecar on stderr (JSON lines).
-type SidecarEvent struct {
-	Type    string          `json:"type"`
-	Name    string          `json:"name,omitempty"`
-	TaskID  string          `json:"task_id,omitempty"`
-	Stage   string          `json:"stage,omitempty"`
-	Phase   string          `json:"phase,omitempty"`
-	Percent float64         `json:"download_percent,omitempty"`
-	Files   []string        `json:"files,omitempty"`
-	Error   string          `json:"error,omitempty"`
-	Message string          `json:"message,omitempty"`
-	Phone   string          `json:"phone,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+// SidecarCommand is a JSON-RPC request sent to the Python sidecar on stdin.
+type SidecarCommand struct {
+	ID     string                 `json:"id"`
+	Method string                 `json:"method"`
+	Params map[string]interface{} `json:"params"`
 }
 
-// SidecarRequest is a JSON line sent to the sidecar on stdin.
-type SidecarRequest struct {
-	ID     string          `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params,omitempty"`
-}
-
-// SidecarResponse is a JSON line read from the sidecar's stdout.
-type SidecarResponse struct {
+// sidecarResponse is a JSON-RPC response read from the sidecar's stdout.
+type sidecarResponse struct {
 	ID     string          `json:"id"`
 	OK     bool            `json:"ok"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
 }
 
-// Sidecar owns the deezload.py subprocess and the JSON-RPC client.
-type Sidecar struct {
+// SidecarEvent is an async JSON event read from the sidecar's stderr.
+type SidecarEvent struct {
+	Type            string   `json:"type"`
+	Name            string   `json:"name"`
+	TaskID          string   `json:"task_id"`
+	Stage           string   `json:"stage,omitempty"`
+	Phase           string   `json:"phase,omitempty"`
+	DownloadPercent float64  `json:"download_percent,omitempty"`
+	Files           []string `json:"files,omitempty"`
+	Message         string   `json:"message,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
+// SidecarStatus holds public-facing sidecar state.
+type SidecarStatus struct {
+	Running       bool   `json:"running"`
+	Authenticated bool   `json:"authenticated"`
+	Error         string `json:"error,omitempty"`
+}
+
+// SidecarDownloadRequest is used internally to track a download task.
+type SidecarDownloadRequest struct {
+	TaskID    string
+	Artist    string
+	Title     string
+	OutputDir string
+	Response  chan SidecarDownloadResult
+}
+
+// SidecarDownloadResult is the result of a sidecar download.
+type SidecarDownloadResult struct {
+	FilePath string
+	Error    string
+}
+
+// pending tracks a request waiting for a JSON-RPC response.
+type pendingRequest struct {
+	ch      chan sidecarResponse
+	timeout time.Time
+}
+
+// ---------------------------------------------------------------------------
+// DeezerSidecar
+// ---------------------------------------------------------------------------
+
+// DeezerSidecar manages the Python sidecar subprocess for Deezer downloads.
+// Communication follows a JSON-RPC protocol over stdin/stdout, with async
+// events on stderr.
+type DeezerSidecar struct {
+	mu            sync.Mutex
+	cmd           *exec.Cmd
+	stdin         io.WriteCloser
+	running       bool
+	authenticated bool
+	startErr      string
+	dataDir       string
+
+	pending   map[string]pendingRequest
+	reqSeq    int
+	events    chan SidecarEvent
+	eventDone chan struct{}
+	respDone  chan struct{}
+
+	// Credentials (loaded from keychain at init).
+	apiID   string
+	apiHash string
+	phone   string
+
+	// Python path.
 	pythonPath string
-	scriptPath string
-	workDir    string
-	extraEnv   map[string]string
 
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	stdout   *bufio.Reader
-	pyStderrFile *os.File
-	stderr   *bufio.Reader
-	pending  map[string]chan SidecarResponse
-	cancelF  map[string]context.CancelFunc
-	closed   atomic.Bool
-	status   string
-	lastErr  string
+	// Exit monitoring.
+	onStatusChange func(SidecarStatus)
+	stderrMu       sync.Mutex
+	stderrBuf      strings.Builder // captured stderr for diagnostics on crash
 
-	// Ring buffer of recent stderr lines for diagnostics. When the
-	// subprocess dies or ping fails, the last lines are surfaced in the
-	// sidecar:status event so the user can see what went wrong.
-	logBuf []string
-
-	// Channel for sending the auth code to the running sidecar.
-	authCh chan string
-
-	// OnEvent is called for each event line parsed from stderr.
-	OnEvent func(SidecarEvent)
-	// OnStatus is called whenever the sidecar status changes.
-	OnStatus func(status, message string)
+	// Task completion waiters — maps task_id to a buffered channel that
+	// receives the first file path from a "complete" sidecar event.
+	taskWaits map[string]chan string
 }
 
-const sidecarLogBufferSize = 50
-
-// SidecarConfig configures a new Sidecar.
-type SidecarConfig struct {
-	PythonBinary string            // path to python; defaults to "python" / "python3"
-	ScriptPath   string            // path to deezload.py
-	WorkDir      string            // sidecar's working directory (where .env lives)
-	ExtraEnv     map[string]string // additional env vars to pass to the subprocess
+// NewDeezerSidecar creates a new sidecar manager. Call Start() to spawn the
+// Python subprocess.
+func NewDeezerSidecar(dataDir, pythonPath string) *DeezerSidecar {
+	apiID, apiHash, phone := GetSidecarCredentials()
+	return &DeezerSidecar{
+		dataDir:    dataDir,
+		pythonPath: pythonPath,
+		apiID:      apiID,
+		apiHash:    apiHash,
+		phone:      phone,
+		events:     make(chan SidecarEvent, 64),
+	}
 }
 
-// NewSidecar constructs a new Sidecar. It does not start the subprocess.
-func NewSidecar(cfg SidecarConfig) (*Sidecar, error) {
-	if cfg.ScriptPath == "" {
-		return nil, errors.New("sidecar: ScriptPath required")
-	}
-	if cfg.PythonBinary == "" {
-		if runtime.GOOS == "windows" {
-			cfg.PythonBinary = "python"
-		} else {
-			cfg.PythonBinary = "python3"
-		}
-	}
-	if _, err := os.Stat(cfg.ScriptPath); err != nil {
-		return nil, fmt.Errorf("sidecar: script not found: %w", err)
-	}
-	if cfg.WorkDir == "" {
-		cfg.WorkDir = filepath.Dir(cfg.ScriptPath)
-	}
-	return &Sidecar{
-		pythonPath: cfg.PythonBinary,
-		scriptPath: cfg.ScriptPath,
-		workDir:    cfg.WorkDir,
-		extraEnv:   cfg.ExtraEnv,
-		pending:    map[string]chan SidecarResponse{},
-		cancelF:    map[string]context.CancelFunc{},
-		authCh:     make(chan string, 1),
-		status:     SidecarStatusStopped,
-		logBuf:     make([]string, 0, sidecarLogBufferSize),
-	}, nil
+// HasCredentials returns true if all Telegram credentials are configured.
+func (s *DeezerSidecar) HasCredentials() bool {
+	return s.apiID != "" && s.apiHash != "" && s.phone != ""
 }
 
-// SetHandlers sets the event and status callbacks.
-func (s *Sidecar) SetHandlers(onEvent func(SidecarEvent), onStatus func(string, string)) {
-	s.OnEvent = onEvent
-	s.OnStatus = onStatus
-}
-
-// Status returns the current sidecar status string.
-func (s *Sidecar) Status() string {
+// Start spawns the Python sidecar process.
+func (s *DeezerSidecar) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.status
-}
 
-// ScriptPath returns the path to the Python script managed by this sidecar.
-func (s *Sidecar) ScriptPath() string { return s.scriptPath }
-
-// Start launches the sidecar subprocess and starts the read loops.
-func (s *Sidecar) Start(ctx context.Context) error {
-	s.mu.Lock()
-	if s.cmd != nil {
-		s.mu.Unlock()
-		return errors.New("sidecar: already running")
-	}
-	// Set the status directly while holding the lock to avoid a
-	// re-entrant deadlock (setStatus also acquires s.mu).
-	s.status = SidecarStatusStarting
-	s.lastErr = ""
-	s.mu.Unlock()
-	// Fire the status callback outside the lock.
-	if s.OnStatus != nil {
-		s.OnStatus(SidecarStatusStarting, "")
+	if s.running {
+		return nil
 	}
 
-	dbgLog("Start: pythonPath=%s scriptPath=%s workDir=%s", s.pythonPath, s.scriptPath, s.workDir)
-	dbgLog("Start: creating command...")
-	cmd := exec.CommandContext(ctx, s.pythonPath, s.scriptPath, "--sidecar")
-	cmd.Dir = s.workDir
-	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
-	for k, v := range s.extraEnv {
-		cmd.Env = append(cmd.Env, k+"="+v)
+	if !s.HasCredentials() {
+		s.startErr = "Telegram credentials not configured"
+		return fmt.Errorf("%s", s.startErr)
 	}
-	// Open a log file for Python's stderr so crashes are preserved,
-	// but always route stderr through a pipe so we can parse events
-	// (auth_needed, progress, etc.) in real time.
-	pyStderrFile, pyStderrPath := (*os.File)(nil), ""
-	if exe, err := os.Executable(); err == nil {
-		pyStderrPath = filepath.Join(filepath.Dir(exe), "python-stderr.log")
-		if f, err := os.Create(pyStderrPath); err == nil {
-			pyStderrFile = f
-			dbgLog("Start: python stderr will be mirrored to %s", pyStderrPath)
-		}
+
+	// Reset start error and stderr buffer.
+	s.startErr = ""
+	s.stderrBuf.Reset()
+
+	// Resolve the Python executable.
+	pyPath := s.pythonPath
+	if pyPath == "" {
+		pyPath = resolvePython()
 	}
-	stdin, err := cmd.StdinPipe()
+	if pyPath == "" {
+		s.startErr = "python not found"
+		return fmt.Errorf("%s", s.startErr)
+	}
+
+	// Resolve the sidecar script path (absolute, based on executable or cwd).
+	sidecarPath, pathErr := resolveSidecarScriptPath()
+	if pathErr != nil {
+		s.startErr = pathErr.Error()
+		return fmt.Errorf("resolve sidecar script: %w", pathErr)
+	}
+
+	// Ensure the data directory exists so cmd.Dir does not fail silently.
+	_ = os.MkdirAll(s.dataDir, 0o755)
+
+	// Build the command.
+	s.cmd = exec.Command(pyPath, sidecarPath, "--sidecar")
+	s.cmd.Dir = s.dataDir
+
+	// Pass credentials as environment variables.
+	s.cmd.Env = append(os.Environ(),
+		"TELEGRAM_API_ID="+s.apiID,
+		"TELEGRAM_API_HASH="+s.apiHash,
+		"TELEGRAM_PHONE="+s.phone,
+		"LYMURU_DOWNLOAD_DIR="+filepath.Join(s.dataDir, "downloads"),
+	)
+
+	// Stdin pipe for sending commands.
+	var err error
+	s.stdin, err = s.cmd.StdinPipe()
 	if err != nil {
-		dbgLog("Start: stdin pipe FAILED: %v", err)
-		if pyStderrFile != nil {
-			pyStderrFile.Close()
-		}
-		return fmt.Errorf("sidecar: stdin pipe: %w", err)
+		s.startErr = err.Error()
+		return fmt.Errorf("sidecar stdin: %w", err)
 	}
-	stdout, err := cmd.StdoutPipe()
+
+	// Stdout pipe for reading JSON-RPC responses.
+	stdout, err := s.cmd.StdoutPipe()
 	if err != nil {
-		dbgLog("Start: stdout pipe FAILED: %v", err)
-		stdin.Close()
-		if pyStderrFile != nil {
-			pyStderrFile.Close()
-		}
-		return fmt.Errorf("sidecar: stdout pipe: %w", err)
+		s.startErr = err.Error()
+		return fmt.Errorf("sidecar stdout: %w", err)
 	}
-	// Always use StderrPipe — we need to read events in real time.
-	// The log file is written to manually inside readStderrLoop.
-	stderrPipe, err := cmd.StderrPipe()
+
+	// Stderr pipe for reading async events.
+	stderr, err := s.cmd.StderrPipe()
 	if err != nil {
-		dbgLog("Start: stderr pipe FAILED: %v", err)
-		stdin.Close()
-		stdout.Close()
-		if pyStderrFile != nil {
-			pyStderrFile.Close()
-		}
-		return fmt.Errorf("sidecar: stderr pipe: %w", err)
+		s.startErr = err.Error()
+		return fmt.Errorf("sidecar stderr: %w", err)
 	}
-	s.stderr = bufio.NewReader(stderrPipe)
-	dbgLog("Start: calling cmd.Start()...")
-	if err := cmd.Start(); err != nil {
-		dbgLog("Start: cmd.Start FAILED: %v", err)
-		stdin.Close()
-		stdout.Close()
-		if pyStderrFile != nil {
-			pyStderrFile.Close()
-		}
-		return fmt.Errorf("sidecar: start: %w", err)
+
+	if err := s.cmd.Start(); err != nil {
+		s.startErr = err.Error()
+		return fmt.Errorf("sidecar start: %w", err)
 	}
-	dbgLog("Start: cmd.Start OK, PID=%d", cmd.Process.Pid)
 
-	// Re-acquire the lock to publish the subprocess fields. The
-	// initial lock was released above so OnStatus could fire without
-	// re-entering setStatus; now that pipes are open and the process
-	// is running, publish the handles atomically.
-	s.mu.Lock()
-	s.cmd = cmd
-	s.stdin = stdin
-	s.stdout = bufio.NewReader(stdout)
-	// The log file is written to by readStderrLoop; waitLoop closes it on exit.
-	s.pyStderrFile = pyStderrFile
-	s.closed.Store(false)
-	s.mu.Unlock()
+	s.running = true
+	s.pending = make(map[string]pendingRequest)
+	s.taskWaits = make(map[string]chan string)
+	s.reqSeq = 0
+	s.eventDone = make(chan struct{})
+	s.respDone = make(chan struct{})
 
-	go s.readStdoutLoop()
-	// s.stderr is always set (StderrPipe), so readStderrLoop always runs.
-	go s.readStderrLoop()
-	go s.waitLoop()
+	// Read JSON-RPC responses from stdout.
+	go func() {
+		defer close(s.respDone)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			var resp sidecarResponse
+			if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+				LogWarn("[Sidecar] bad stdout line: %v", err)
+				continue
+			}
+			s.mu.Lock()
+			pr, ok := s.pending[resp.ID]
+			if ok {
+				delete(s.pending, resp.ID)
+			}
+			s.mu.Unlock()
+			if ok {
+				select {
+				case pr.ch <- resp:
+				default:
+				}
+			}
+		}
+	}()
 
-	dbgLog("Start: entering pingLoop (30s timeout)...")
-	if err := s.pingLoop(ctx); err != nil {
-		dbgLog("Start: pingLoop FAILED: %v", err)
+	// Read async events from stderr.
+	go func() {
+		defer close(s.eventDone)
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Capture last lines of stderr for crash diagnostics.
+			s.appendStderr(line)
+			var ev SidecarEvent
+			if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+				LogDebug("[Sidecar] non-event stderr: %s", line)
+				continue
+			}
+			if ev.Name == "auth_needed" {
+				s.mu.Lock()
+				s.authenticated = false
+				s.mu.Unlock()
+			}
+			if ev.Name == "auth_success" {
+				s.mu.Lock()
+				s.authenticated = true
+				status := SidecarStatus{
+					Running:       s.running,
+					Authenticated: s.authenticated,
+					Error:         s.startErr,
+				}
+				cb := s.onStatusChange
+				s.mu.Unlock()
+				if cb != nil {
+					cb(status)
+				}
+			}
+			if ev.Name == "complete" {
+				s.mu.Lock()
+				waiter, ok := s.taskWaits[ev.TaskID]
+				if ok {
+					delete(s.taskWaits, ev.TaskID)
+					filePath := ""
+					if len(ev.Files) > 0 {
+						filePath = ev.Files[0]
+					}
+					s.mu.Unlock()
+					select {
+					case waiter <- filePath:
+					default:
+					}
+				} else {
+					s.mu.Unlock()
+				}
+			}
+			select {
+			case s.events <- ev:
+			default:
+			}
+		}
+	}()
+
+	// Wait briefly for startup, then ping to confirm readiness.
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		if _, err := s.call("ping", nil, 5*time.Second); err != nil {
+			LogWarn("[Sidecar] startup ping failed: %v", err)
+		} else {
+			LogInfo("[Sidecar] started successfully")
+		}
+	}()
+
+	// Monitor process exit. When the process dies, update state and notify.
+	go func() {
+		waitErr := s.cmd.Wait()
 		s.mu.Lock()
-		if s.status == SidecarStatusStarting {
-			s.setStatus(SidecarStatusError, err.Error())
+		s.running = false
+		s.authenticated = false
+		if waitErr != nil {
+			s.startErr = waitErr.Error()
 		}
+		// Append captured stderr for better diagnostics.
+		s.stderrMu.Lock()
+		stderrText := strings.TrimSpace(s.stderrBuf.String())
+		s.stderrBuf.Reset()
+		s.stderrMu.Unlock()
+		stderrLower := strings.ToLower(stderrText)
+		if strings.Contains(stderrLower, "microsoft store") || strings.Contains(stderrLower, "python was not found") {
+			s.startErr = "Python is not installed or only the Microsoft Store alias is available. Install Python from python.org and restart, or set the Python Path in Settings → Deezer."
+		} else if stderrText != "" {
+			lastLine := stderrText
+			if idx := strings.LastIndex(lastLine, "\n"); idx >= 0 {
+				lastLine = lastLine[idx+1:]
+			}
+			if s.startErr == "" {
+				s.startErr = lastLine
+			} else {
+				s.startErr = fmt.Sprintf("%s (stderr: %s)", s.startErr, lastLine)
+			}
+		}
+		// Unblock pending callers.
+		for id, pr := range s.pending {
+			select {
+			case pr.ch <- sidecarResponse{ID: id, OK: false, Error: "sidecar process exited"}:
+			default:
+			}
+			delete(s.pending, id)
+		}
+		status := SidecarStatus{
+			Running:       s.running,
+			Authenticated: s.authenticated,
+			Error:         s.startErr,
+		}
+		cb := s.onStatusChange
 		s.mu.Unlock()
-		return err
-	}
-	dbgLog("Start: pingLoop OK, sidecar online")
-	s.setStatus(SidecarStatusOnline, "")
+		if cb != nil {
+			cb(status)
+		}
+	}()
+
 	return nil
 }
 
-// Stop terminates the sidecar subprocess.
-func (s *Sidecar) Stop() {
-	s.closed.Store(true)
+// Stop gracefully shuts down the sidecar.
+func (s *DeezerSidecar) Stop() {
 	s.mu.Lock()
-	if s.cmd == nil || s.cmd.Process == nil {
-		s.mu.Unlock()
+	defer s.mu.Unlock()
+
+	if !s.running {
 		return
 	}
-	cmd := s.cmd
+
+	// Send shutdown command (fire-and-forget).
+	cmd := SidecarCommand{ID: "shutdown", Method: "shutdown", Params: map[string]interface{}{}}
 	if s.stdin != nil {
-		_ = s.stdin.Close()
-		s.stdin = nil
+		raw, _ := json.Marshal(cmd)
+		_, _ = fmt.Fprintln(s.stdin, string(raw))
 	}
-	s.mu.Unlock()
-	_ = cmd.Process.Kill()
-	_, _ = cmd.Process.Wait()
-	s.setStatus(SidecarStatusStopped, "")
+
+	// Wait briefly, then kill.
+	time.Sleep(200 * time.Millisecond)
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+	}
+	s.running = false
+	s.authenticated = false
+
+	// Close the events channel so the forwarding goroutine exits.
+	close(s.events)
 }
 
-// Request sends a JSON-RPC request to the sidecar and waits for the response.
-func (s *Sidecar) Request(ctx context.Context, method string, params any) (SidecarResponse, error) {
+// IsRunning returns true if the sidecar process is alive.
+func (s *DeezerSidecar) IsRunning() bool {
 	s.mu.Lock()
-	if s.cmd == nil || s.stdin == nil {
-		s.mu.Unlock()
-		return SidecarResponse{}, errors.New("sidecar: not running")
+	defer s.mu.Unlock()
+	return s.running
+}
+
+// IsAuthenticated returns true if the Telegram session is valid.
+func (s *DeezerSidecar) IsAuthenticated() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.authenticated
+}
+
+// EventChan returns the channel for async sidecar events.
+func (s *DeezerSidecar) EventChan() <-chan SidecarEvent {
+	return s.events
+}
+
+// Status returns the current sidecar status.
+func (s *DeezerSidecar) Status() SidecarStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return SidecarStatus{
+		Running:       s.running,
+		Authenticated: s.authenticated,
+		Error:         s.startErr,
 	}
-	id := uuid.NewString()
-	req := SidecarRequest{ID: id, Method: method}
-	if params != nil {
-		b, err := json.Marshal(params)
-		if err != nil {
-			s.mu.Unlock()
-			return SidecarResponse{}, err
-		}
-		req.Params = b
+}
+
+// SetOnStatusChange registers a callback invoked when the sidecar status
+// changes (e.g., on process exit). The callback fires under no lock.
+func (s *DeezerSidecar) SetOnStatusChange(cb func(SidecarStatus)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onStatusChange = cb
+}
+
+// SubmitAuthCode forwards an auth code to the sidecar.
+func (s *DeezerSidecar) SubmitAuthCode(code string) error {
+	_, err := s.call("submit_auth", map[string]interface{}{"code": code}, 30*time.Second)
+	if err != nil {
+		return err
 	}
-	ch := make(chan SidecarResponse, 1)
-	s.pending[id] = ch
-	stdin := s.stdin
+	s.mu.Lock()
+	s.authenticated = true
+	s.mu.Unlock()
+	return nil
+}
+
+// Connect triggers Telegram connection without performing a search.
+// This will either connect silently (existing session) or emit auth_needed
+// and wait for the user to submit a verification code.
+func (s *DeezerSidecar) Connect() error {
+	_, err := s.call("connect", nil, 300*time.Second)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.authenticated = true
+	s.mu.Unlock()
+	return nil
+}
+
+// Search looks up a track on Deezer via Telegram.
+func (s *DeezerSidecar) Search(artist, title string) (map[string]interface{}, error) {
+	resp, err := s.call("search", map[string]interface{}{
+		"artist": artist,
+		"title":  title,
+	}, 60*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		return nil, fmt.Errorf("parse search response: %w", err)
+	}
+	return result, nil
+}
+
+// Download enqueues a Deezer download via the sidecar and waits for the
+// resulting file path. The outputDir and exportLrc settings are synced to
+// the sidecar before the download begins.
+func (s *DeezerSidecar) Download(searchKey string, choice int, outputDir string, exportLrc bool) (string, error) {
+	if err := s.SetSettings(outputDir, exportLrc); err != nil {
+		return "", fmt.Errorf("set sidecar settings: %w", err)
+	}
+
+	taskID := uuid.New().String()[:16]
+	ch := make(chan string, 1)
+
+	s.mu.Lock()
+	s.taskWaits[taskID] = ch
 	s.mu.Unlock()
 
-	b, _ := json.Marshal(req)
-	b = append(b, '\n')
-	if _, err := stdin.Write(b); err != nil {
+	_, err := s.call("download", map[string]interface{}{
+		"search_key": searchKey,
+		"choice":     choice,
+		"task_id":    taskID,
+	}, 300*time.Second)
+
+	s.mu.Lock()
+	delete(s.taskWaits, taskID)
+	s.mu.Unlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	timer := time.NewTimer(300 * time.Second)
+	defer timer.Stop()
+	select {
+	case filePath := <-ch:
+		if filePath == "" {
+			return "", fmt.Errorf("sidecar completed without a file path")
+		}
+		return filePath, nil
+	case <-timer.C:
+		return "", fmt.Errorf("sidecar download timed out")
+	}
+}
+
+// DownloadLink downloads from a direct Deezer URL.
+func (s *DeezerSidecar) DownloadLink(url string) (string, error) {
+	resp, err := s.call("download_link", map[string]interface{}{
+		"url": url,
+	}, 300*time.Second)
+	if err != nil {
+		return "", err
+	}
+	var result map[string]interface{}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		return "", fmt.Errorf("parse download response: %w", err)
+	}
+	taskID, _ := result["task_id"].(string)
+	return taskID, nil
+}
+
+// SetSettings sends updated settings to the sidecar.
+func (s *DeezerSidecar) SetSettings(downloadsFolder string, exportLrc bool) error {
+	_, err := s.call("set_settings", map[string]interface{}{
+		"downloads_folder": downloadsFolder,
+		"export_lrc_file":  exportLrc,
+	}, 5*time.Second)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+// appendStderr appends a line to the stderr buffer, keeping only the last 4 KB.
+func (s *DeezerSidecar) appendStderr(line string) {
+	s.stderrMu.Lock()
+	defer s.stderrMu.Unlock()
+	s.stderrBuf.WriteString(line)
+	s.stderrBuf.WriteByte('\n')
+	// Trim to last ~4 KB to avoid unbounded growth.
+	if s.stderrBuf.Len() > 4096 {
+		buf := s.stderrBuf.String()
+		keep := buf[len(buf)-4096:]
+		s.stderrBuf.Reset()
+		s.stderrBuf.WriteString(keep)
+	}
+}
+
+func (s *DeezerSidecar) call(method string, params map[string]interface{}, timeout time.Duration) (sidecarResponse, error) {
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+
+	s.mu.Lock()
+	if !s.running {
+		s.mu.Unlock()
+		return sidecarResponse{}, fmt.Errorf("sidecar not running")
+	}
+	s.reqSeq++
+	id := fmt.Sprintf("%s-%d", uuid.New().String()[:8], s.reqSeq)
+	ch := make(chan sidecarResponse, 1)
+	s.pending[id] = pendingRequest{ch: ch, timeout: time.Now().Add(timeout)}
+	s.mu.Unlock()
+
+	cmd := SidecarCommand{ID: id, Method: method, Params: params}
+	raw, err := json.Marshal(cmd)
+	if err != nil {
+		return sidecarResponse{}, fmt.Errorf("marshal command: %w", err)
+	}
+
+	if _, err := fmt.Fprintln(s.stdin, string(raw)); err != nil {
 		s.mu.Lock()
 		delete(s.pending, id)
 		s.mu.Unlock()
-		return SidecarResponse{}, fmt.Errorf("sidecar: write: %w", err)
+		return sidecarResponse{}, fmt.Errorf("write command: %w", err)
 	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case resp := <-ch:
+		if !resp.OK {
+			return resp, fmt.Errorf("sidecar error: %s", resp.Error)
+		}
 		return resp, nil
-	case <-ctx.Done():
+	case <-timer.C:
 		s.mu.Lock()
 		delete(s.pending, id)
 		s.mu.Unlock()
-		return SidecarResponse{}, ctx.Err()
+		return sidecarResponse{}, fmt.Errorf("sidecar request timed out after %v", timeout)
 	}
 }
 
-// SubmitAuthCode sends the Telegram verification code to the sidecar.
-func (s *Sidecar) SubmitAuthCode(code string) error {
-	select {
-	case s.authCh <- code:
-		return nil
-	default:
-		return errors.New("sidecar: auth channel full")
-	}
-}
-
-func (s *Sidecar) setStatus(status, message string) {
-	s.mu.Lock()
-	s.status = status
-	s.lastErr = message
-	s.mu.Unlock()
-	if s.OnStatus != nil {
-		s.OnStatus(status, message)
-	}
-}
-
-func (s *Sidecar) readStdoutLoop() {
-	for {
-		s.mu.Lock()
-		stdout := s.stdout
-		closed := s.closed.Load()
-		s.mu.Unlock()
-		if closed || stdout == nil {
-			return
-		}
-		line, err := stdout.ReadString('\n')
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				s.setStatus(SidecarStatusError, "stdout read: "+err.Error())
-			}
-			return
-		}
-		var resp SidecarResponse
-		if err := json.Unmarshal([]byte(line), &resp); err != nil {
-			// Skip malformed lines.
-			continue
-		}
-		s.mu.Lock()
-		ch, ok := s.pending[resp.ID]
-		if ok {
-			delete(s.pending, resp.ID)
-		}
-		s.mu.Unlock()
-		if ok {
-			ch <- resp
-		}
-	}
-}
-
-func (s *Sidecar) readStderrLoop() {
-	for {
-		s.mu.Lock()
-		stderr := s.stderr
-		pyStderrFile := s.pyStderrFile
-		closed := s.closed.Load()
-		s.mu.Unlock()
-		if closed || stderr == nil {
-			return
-		}
-		line, err := stderr.ReadString('\n')
-		if err != nil {
-			return
-		}
-		line = trimNewline(line)
-		if line == "" {
-			continue
-		}
-		// Mirror each line to the log file (best-effort; ignore write errors).
-		if pyStderrFile != nil {
-			_, _ = pyStderrFile.WriteString(line + "\n")
-		}
-		log.Printf("sidecar stderr: %s", line)
-		s.appendLog(line)
-		var ev SidecarEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			// Treat as a plain log line; surface as a generic event.
-			ev = SidecarEvent{Type: "log", Message: line}
-		}
-		if s.OnEvent != nil {
-			s.OnEvent(ev)
-		}
-		switch ev.Name {
-		case "auth_needed":
-			s.setStatus(SidecarStatusAuth, ev.Phone)
-		case "auth_success":
-			s.setStatus(SidecarStatusOnline, "")
-		}
-	}
-}
-
-// appendLog stores the line in the ring buffer for later diagnostics.
-func (s *Sidecar) appendLog(line string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.logBuf) >= sidecarLogBufferSize {
-		// Drop the oldest entry.
-		s.logBuf = s.logBuf[1:]
-	}
-	s.logBuf = append(s.logBuf, line)
-}
-
-// Logs returns a copy of the most recent stderr lines.
-func (s *Sidecar) Logs() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]string, len(s.logBuf))
-	copy(out, s.logBuf)
-	return out
-}
-
-// Snapshot returns the current status, last error message, and recent
-// logs as a single consistent read.
-func (s *Sidecar) Snapshot() (status, message string, logs []string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status = s.status
-	message = s.lastErr
-	logs = make([]string, len(s.logBuf))
-	copy(logs, s.logBuf)
-	return
-}
-
-func (s *Sidecar) waitLoop() {
-	s.mu.Lock()
-	cmd := s.cmd
-	s.mu.Unlock()
-	if cmd == nil {
-		log.Printf("waitLoop: cmd is nil, exiting")
-		return
-	}
-	log.Printf("waitLoop: waiting for process...")
-	err := cmd.Wait()
-	log.Printf("waitLoop: process exited, err=%v", err)
-	s.mu.Lock()
-	s.cmd = nil
-	s.stdin = nil
-	s.stdout = nil
-	s.stderr = nil
-	// Close the python stderr file if we created one.
-	if s.pyStderrFile != nil {
-		_ = s.pyStderrFile.Close()
-		s.pyStderrFile = nil
-	}
-	// Close any pending requests.
-	for id, ch := range s.pending {
-		ch <- SidecarResponse{ID: id, OK: false, Error: "sidecar exited"}
-		delete(s.pending, id)
-	}
-	s.mu.Unlock()
-	if s.closed.Load() {
-		return
-	}
-	msg := "sidecar exited"
-	if err != nil {
-		msg = "sidecar exited: " + err.Error()
-	}
-	// Surface the last few stderr lines so the user can see what
-	// crashed (e.g. "ModuleNotFoundError: No module named 'telethon'").
-	if logs := s.Logs(); len(logs) > 0 {
-		tail := logs
-		if len(tail) > 3 {
-			tail = tail[len(tail)-3:]
-		}
-		msg += " — " + strings.Join(tail, " | ")
-	}
-	s.setStatus(SidecarStatusError, msg)
-}
-
-func (s *Sidecar) pingLoop(ctx context.Context) error {
-	dbgLog("pingLoop: entering, sending ping request")
-	deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	resp, err := s.Request(deadline, "ping", nil)
-	dbgLog("pingLoop: Request returned, err=%v ok=%v", err, resp.OK)
-	if err != nil {
-		// On timeout, include the most recent stderr lines so the
-		// user can see whether Python is still booting up or
-		// already crashed.
-		if deadline.Err() != nil {
-			if logs := s.Logs(); len(logs) > 0 {
-				tail := logs
-				if len(tail) > 3 {
-					tail = tail[len(tail)-3:]
-				}
-				return fmt.Errorf("sidecar did not respond to ping within 30s — last log: %s",
-					strings.Join(tail, " | "))
-			}
-		}
-		return err
-	}
-	if !resp.OK {
-		return errors.New("sidecar ping failed: " + resp.Error)
-	}
-	return nil
-}
-
-func trimNewline(s string) string {
-	for len(s) > 0 && (s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
-		s = s[:len(s)-1]
-	}
-	return s
-}
-
-func dbgLog(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-	line := time.Now().Format("15:04:05.000") + " sidecar:" + msg + "\n"
-
-	exe, err := os.Executable()
-	if err != nil {
-		os.Stderr.WriteString("dbgLog: os.Executable failed: " + err.Error() + "\n")
-		return
-	}
-	dir := filepath.Dir(exe)
-	// Write to both boot.log (legacy) and sidecar.log (current).
-	for _, name := range []string{"boot.log", "sidecar.log"} {
-		f, err := os.OpenFile(filepath.Join(dir, name),
-			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+// resolvePython finds a working Python 3 executable on the system PATH.
+// On Windows it also tries the "py" launcher and verifies candidates are
+// not the Microsoft Store stub.
+func resolvePython() string {
+	for _, name := range []string{"python3", "python", "py"} {
+		p, err := exec.LookPath(name)
 		if err != nil {
 			continue
 		}
-		f.WriteString(line)
-		f.Close()
+		// Quick verification: run python --version to confirm it's real.
+		if isRealPython(p) {
+			return p
+		}
 	}
+	return ""
+}
+
+// isRealPython runs the given executable with --version and checks if it
+// outputs a Python version string (not a Microsoft Store alias message).
+func isRealPython(exe string) bool {
+	out, err := exec.Command(exe, "--version").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	s := strings.ToLower(string(out))
+	return strings.Contains(s, "python")
+}
+
+// resolveSidecarScriptPath returns the absolute path to sidecar/deezload.py.
+// It searches relative to the executable first (for wails build), then falls
+// back to the current working directory (for wails dev / go run).
+func resolveSidecarScriptPath() (string, error) {
+	candidates := []string{}
+
+	// Candidate 1: relative to the executable (build/bin/Lymuru.exe → ../../sidecar/).
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "..", "sidecar", "deezload.py"))
+	}
+
+	// Candidate 2: relative to current working directory (running from repo root).
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "sidecar", "deezload.py"))
+	}
+
+	for _, p := range candidates {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(abs); err == nil {
+			LogDebug("[Sidecar] script found at %s", abs)
+			return abs, nil
+		}
+	}
+
+	return "", fmt.Errorf("sidecar script not found; checked: %v", candidates)
 }
