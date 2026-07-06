@@ -109,6 +109,10 @@ type DeezerSidecar struct {
 	onStatusChange func(SidecarStatus)
 	stderrMu       sync.Mutex
 	stderrBuf      strings.Builder // captured stderr for diagnostics on crash
+
+	// Task completion waiters — maps task_id to a buffered channel that
+	// receives the first file path from a "complete" sidecar event.
+	taskWaits map[string]chan string
 }
 
 // NewDeezerSidecar creates a new sidecar manager. Call Start() to spawn the
@@ -209,6 +213,7 @@ func (s *DeezerSidecar) Start() error {
 
 	s.running = true
 	s.pending = make(map[string]pendingRequest)
+	s.taskWaits = make(map[string]chan string)
 	s.reqSeq = 0
 	s.eventDone = make(chan struct{})
 	s.respDone = make(chan struct{})
@@ -268,6 +273,24 @@ func (s *DeezerSidecar) Start() error {
 				s.mu.Unlock()
 				if cb != nil {
 					cb(status)
+				}
+			}
+			if ev.Name == "complete" {
+				s.mu.Lock()
+				waiter, ok := s.taskWaits[ev.TaskID]
+				if ok {
+					delete(s.taskWaits, ev.TaskID)
+					filePath := ""
+					if len(ev.Files) > 0 {
+						filePath = ev.Files[0]
+					}
+					s.mu.Unlock()
+					select {
+					case waiter <- filePath:
+					default:
+					}
+				} else {
+					s.mu.Unlock()
 				}
 			}
 			select {
@@ -446,22 +469,46 @@ func (s *DeezerSidecar) Search(artist, title string) (map[string]interface{}, er
 	return result, nil
 }
 
-// Download enqueues a Deezer download via the sidecar.
-// Returns the task_id for progress tracking.
-func (s *DeezerSidecar) Download(searchKey string, choice int) (string, error) {
-	resp, err := s.call("download", map[string]interface{}{
+// Download enqueues a Deezer download via the sidecar and waits for the
+// resulting file path. The outputDir and exportLrc settings are synced to
+// the sidecar before the download begins.
+func (s *DeezerSidecar) Download(searchKey string, choice int, outputDir string, exportLrc bool) (string, error) {
+	if err := s.SetSettings(outputDir, exportLrc); err != nil {
+		return "", fmt.Errorf("set sidecar settings: %w", err)
+	}
+
+	taskID := uuid.New().String()[:16]
+	ch := make(chan string, 1)
+
+	s.mu.Lock()
+	s.taskWaits[taskID] = ch
+	s.mu.Unlock()
+
+	_, err := s.call("download", map[string]interface{}{
 		"search_key": searchKey,
 		"choice":     choice,
+		"task_id":    taskID,
 	}, 300*time.Second)
+
+	s.mu.Lock()
+	delete(s.taskWaits, taskID)
+	s.mu.Unlock()
+
 	if err != nil {
 		return "", err
 	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return "", fmt.Errorf("parse download response: %w", err)
+
+	timer := time.NewTimer(300 * time.Second)
+	defer timer.Stop()
+	select {
+	case filePath := <-ch:
+		if filePath == "" {
+			return "", fmt.Errorf("sidecar completed without a file path")
+		}
+		return filePath, nil
+	case <-timer.C:
+		return "", fmt.Errorf("sidecar download timed out")
 	}
-	taskID, _ := result["task_id"].(string)
-	return taskID, nil
 }
 
 // DownloadLink downloads from a direct Deezer URL.

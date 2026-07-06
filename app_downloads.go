@@ -222,7 +222,10 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 				ItemID:  req.ItemID,
 			}, fmt.Errorf("no deezer results")
 		}
-		taskID, dlErr := a.sidecar.Download(searchKey, 0)
+		// Read LRC export setting for the sidecar.
+		settings, _ := a.config.Load()
+		exportLrc := settings.ExportLrcFile
+		filePath, dlErr := a.sidecar.Download(searchKey, 0, req.OutputDir, exportLrc)
 		if dlErr != nil {
 			backend.FailDownloadItem(req.ItemID, fmt.Sprintf("Deezer download: %v", dlErr))
 			return DownloadResponse{
@@ -231,7 +234,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 				ItemID:  req.ItemID,
 			}, dlErr
 		}
-		filename = taskID
+		filename = filePath
 		sourceURL = "https://deezer.com"
 		sourceLabel = "Deezer"
 

@@ -891,12 +891,13 @@ func (a *App) SidecarDownload(artist, title string) (map[string]interface{}, err
 		return nil, fmt.Errorf("no results found")
 	}
 	// 2. Download the top result.
-	taskID, err := a.sidecar.Download(searchKey, 0)
+	settings, _ := a.config.Load()
+	filePath, err := a.sidecar.Download(searchKey, 0, settings.DownloadsFolder, settings.ExportLrcFile)
 	if err != nil {
 		return nil, fmt.Errorf("download: %w", err)
 	}
 	return map[string]interface{}{
-		"task_id":    taskID,
+		"file_path":  filePath,
 		"search_key": searchKey,
 	}, nil
 }
