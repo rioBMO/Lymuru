@@ -82,6 +82,17 @@ func (a *App) startup(ctx context.Context) {
 			}
 		}()
 		wailsruntime.EventsEmit(a.ctx, "sidecar:status", a.sidecar.Status())
+		// Auto-connect to Telegram. Blocks until connected or auth timeout.
+		go func() {
+			if err := a.sidecar.Connect(); err != nil {
+				backend.LogWarn("[Sidecar] connect failed: %v", err)
+				st := a.sidecar.Status()
+				st.Error = err.Error()
+				wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+			} else {
+				backend.LogInfo("[Sidecar] connected to Telegram")
+			}
+		}()
 	}()
 }
 
@@ -815,7 +826,28 @@ func (a *App) RestartSidecar() error {
 			wailsruntime.EventsEmit(a.ctx, "sidecar:event", ev)
 		}
 	}()
+	// Auto-connect to Telegram.
+	go func() {
+		if err := a.sidecar.Connect(); err != nil {
+			backend.LogWarn("[Sidecar] connect failed: %v", err)
+			st := a.sidecar.Status()
+			st.Error = err.Error()
+			wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+		} else {
+			backend.LogInfo("[Sidecar] connected to Telegram")
+		}
+	}()
 	return nil
+}
+
+// ConnectSidecar triggers Telegram authentication without performing a search.
+// The sidecar either connects silently (existing session) or emits auth_needed
+// and waits for a verification code via SubmitSidecarAuthCode.
+func (a *App) ConnectSidecar() error {
+	if a.sidecar == nil {
+		return fmt.Errorf("sidecar not running")
+	}
+	return a.sidecar.Connect()
 }
 
 // TestSidecar sends a ping to verify the sidecar is responsive.

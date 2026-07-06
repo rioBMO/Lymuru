@@ -107,6 +107,7 @@ type DeezerSidecar struct {
 
 	// Exit monitoring.
 	onStatusChange func(SidecarStatus)
+	stderrMu       sync.Mutex
 	stderrBuf      strings.Builder // captured stderr for diagnostics on crash
 }
 
@@ -255,6 +256,20 @@ func (s *DeezerSidecar) Start() error {
 				s.authenticated = false
 				s.mu.Unlock()
 			}
+			if ev.Name == "auth_success" {
+				s.mu.Lock()
+				s.authenticated = true
+				status := SidecarStatus{
+					Running:       s.running,
+					Authenticated: s.authenticated,
+					Error:         s.startErr,
+				}
+				cb := s.onStatusChange
+				s.mu.Unlock()
+				if cb != nil {
+					cb(status)
+				}
+			}
 			select {
 			case s.events <- ev:
 			default:
@@ -282,7 +297,10 @@ func (s *DeezerSidecar) Start() error {
 			s.startErr = waitErr.Error()
 		}
 		// Append captured stderr for better diagnostics.
+		s.stderrMu.Lock()
 		stderrText := strings.TrimSpace(s.stderrBuf.String())
+		s.stderrBuf.Reset()
+		s.stderrMu.Unlock()
 		stderrLower := strings.ToLower(stderrText)
 		if strings.Contains(stderrLower, "microsoft store") || strings.Contains(stderrLower, "python was not found") {
 			s.startErr = "Python is not installed or only the Microsoft Store alias is available. Install Python from python.org and restart, or set the Python Path in Settings → Deezer."
@@ -398,6 +416,20 @@ func (s *DeezerSidecar) SubmitAuthCode(code string) error {
 	return nil
 }
 
+// Connect triggers Telegram connection without performing a search.
+// This will either connect silently (existing session) or emit auth_needed
+// and wait for the user to submit a verification code.
+func (s *DeezerSidecar) Connect() error {
+	_, err := s.call("connect", nil, 300*time.Second)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.authenticated = true
+	s.mu.Unlock()
+	return nil
+}
+
 // Search looks up a track on Deezer via Telegram.
 func (s *DeezerSidecar) Search(artist, title string) (map[string]interface{}, error) {
 	resp, err := s.call("search", map[string]interface{}{
@@ -463,6 +495,8 @@ func (s *DeezerSidecar) SetSettings(downloadsFolder string, exportLrc bool) erro
 
 // appendStderr appends a line to the stderr buffer, keeping only the last 4 KB.
 func (s *DeezerSidecar) appendStderr(line string) {
+	s.stderrMu.Lock()
+	defer s.stderrMu.Unlock()
 	s.stderrBuf.WriteString(line)
 	s.stderrBuf.WriteByte('\n')
 	// Trim to last ~4 KB to avoid unbounded growth.
