@@ -17,15 +17,13 @@ node_modules/
 frontend/wailsjs/
 
 # Wails build artifacts
-build/
-bin/
-frontend/dist/
+/build/*
+!/build/appicon.png
+/bin/
+/frontend/dist/
 *.exe
 *.app
 *.dmg
-
-# Keep app icon source (required for Wails to embed into .exe)
-!build/appicon.png
 
 
 # IDE
