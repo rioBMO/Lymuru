@@ -157,8 +157,15 @@ func (s *DeezerSidecar) Start() error {
 		return fmt.Errorf("%s", s.startErr)
 	}
 
-	// Resolve the sidecar script path.
-	sidecarPath := filepath.Join("sidecar", "deezload.py")
+	// Resolve the sidecar script path (absolute, based on executable or cwd).
+	sidecarPath, pathErr := resolveSidecarScriptPath()
+	if pathErr != nil {
+		s.startErr = pathErr.Error()
+		return fmt.Errorf("resolve sidecar script: %w", pathErr)
+	}
+
+	// Ensure the data directory exists so cmd.Dir does not fail silently.
+	_ = os.MkdirAll(s.dataDir, 0o755)
 
 	// Build the command.
 	s.cmd = exec.Command(pyPath, sidecarPath, "--sidecar")
@@ -539,4 +546,34 @@ func isRealPython(exe string) bool {
 	}
 	s := strings.ToLower(string(out))
 	return strings.Contains(s, "python")
+}
+
+// resolveSidecarScriptPath returns the absolute path to sidecar/deezload.py.
+// It searches relative to the executable first (for wails build), then falls
+// back to the current working directory (for wails dev / go run).
+func resolveSidecarScriptPath() (string, error) {
+	candidates := []string{}
+
+	// Candidate 1: relative to the executable (build/bin/Lymuru.exe → ../../sidecar/).
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "..", "sidecar", "deezload.py"))
+	}
+
+	// Candidate 2: relative to current working directory (running from repo root).
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, "sidecar", "deezload.py"))
+	}
+
+	for _, p := range candidates {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(abs); err == nil {
+			LogDebug("[Sidecar] script found at %s", abs)
+			return abs, nil
+		}
+	}
+
+	return "", fmt.Errorf("sidecar script not found; checked: %v", candidates)
 }
