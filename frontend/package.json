@@ -1,7 +1,6 @@
 {
   "name": "lymuru-frontend",
   "private": true,
-  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "bunx --bun vite",

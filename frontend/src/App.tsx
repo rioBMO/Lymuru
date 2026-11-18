@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { getSettings, getSettingsWithDefaults, loadSettings, saveSettings, applyThemeMode, applyFont } from "@/lib/settings";
 import { applyTheme } from "@/lib/themes";
 import { openExternal } from "@/lib/utils";
+import { isNewerVersion } from "@/lib/version";
 import { OpenFolder, CheckFFmpegInstalled, DownloadFFmpeg, GetRecentFetches, SaveRecentFetches, SubmitSidecarAuthCode } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff, Quit } from "../wailsjs/runtime/runtime";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
@@ -262,7 +263,7 @@ function App() {
             if (data.published_at) {
                 setReleaseDate(data.published_at);
             }
-            if (latestVersion && latestVersion > CURRENT_VERSION) {
+            if (latestVersion && isNewerVersion(latestVersion, CURRENT_VERSION)) {
                 setHasUpdate(true);
                 setUpdateInfo({
                     version: latestVersion,
