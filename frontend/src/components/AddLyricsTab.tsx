@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { AddLyrics } from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { FileUpload } from "@/components/FileUpload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +12,6 @@ export function AddLyricsTab() {
   const [title, setTitle] = useState("");
   const [showMeta, setShowMeta] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { toast } = useToast();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -24,9 +23,9 @@ export function AddLyricsTab() {
         artist.trim(),
         title.trim(),
       );
-      toast(resp, "success");
+      toast.success(resp);
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -37,7 +36,7 @@ export function AddLyricsTab() {
       <Card>
         <CardContent className="p-5">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <FileUpload id="file-addlyrics" accept=".flac" label="FLAC audio file" onFile={setFile} onClear={() => setFile(null)} />
+            <FileUpload id="file-addlyrics" accept=".flac,.mp3,.m4a" label="Audio file" onFile={setFile} onClear={() => setFile(null)} />
             <button
               type="button"
               onClick={() => setShowMeta(!showMeta)}

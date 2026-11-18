@@ -223,6 +223,7 @@ export interface LyricsDownloadRequest {
     disc_number?: number;
     total_tracks?: number;
     total_discs?: number;
+    duration_ms?: number;
 }
 export interface LyricsDownloadResponse {
     success: boolean;
@@ -230,6 +231,7 @@ export interface LyricsDownloadResponse {
     file?: string;
     error?: string;
     already_exists?: boolean;
+    not_found?: boolean;
 }
 export interface TrackAvailability {
     spotify_id: string;
