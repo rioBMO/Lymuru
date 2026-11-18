@@ -241,6 +241,25 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             customTidalApi: nextSavedState.customTidalApi,
         }));
     }, []);
+    // Saving credentials means the user wants Deezer on. Persist the toggle (and
+    // the Python path field) right away: before, only the page's main Save stored
+    // it, so credentials could be saved while Deezer stayed disabled. The backend
+    // starts the sidecar when the saved toggle flips on.
+    const persistSidecarEnabled = useCallback(async (pythonPath: string) => {
+        const nextSavedSettings: SettingsType = {
+            ...getSettings(),
+            sidecarEnabled: true,
+            pythonPath,
+        };
+        await saveSettings(nextSavedSettings);
+        const nextSavedState = getSettings();
+        setSavedSettings(nextSavedState);
+        setTempSettings((prev) => ({
+            ...prev,
+            sidecarEnabled: true,
+            pythonPath: nextSavedState.pythonPath,
+        }));
+    }, []);
     const persistCustomQobuzApi = useCallback(async (nextValue: string) => {
         const normalizedValue = nextValue.trim().replace(/\/+$/g, "");
         const persistedSettings = getSettings();
@@ -1050,9 +1069,16 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                     }
                     setSavingCredentials(true);
                     try {
+                      // Credentials first: if Deezer is already enabled the backend
+                      // restarts the sidecar with them; otherwise enabling it below starts it.
                       await SetSidecarCredentials(sidecarApiId, sidecarApiHash, sidecarPhone);
                       setCredentialsModified(false);
-                      toast.success("Credentials saved to keychain");
+                      if (!savedSettings.sidecarEnabled) {
+                        await persistSidecarEnabled(tempSettings.pythonPath || "");
+                      }
+                      toast.success("Credentials saved — starting Deezer", {
+                        description: "If Telegram sends a login code, enter it in the dialog that appears.",
+                      });
                     } catch (err: any) {
                       toast.error("Failed to save credentials", { description: err?.message || String(err) });
                     } finally {
