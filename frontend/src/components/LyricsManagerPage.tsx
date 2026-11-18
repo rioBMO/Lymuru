@@ -410,8 +410,8 @@ export function LyricsManagerPage() {
                 </div>
                 <p className="text-sm text-muted-foreground mb-4 text-center">
                     {isDragging
-                ? "Drop your files here"
-                : "Drag and drop LRC or audio files here, or use the buttons below"}
+                ? "Drag and drop isn't available yet. Use the buttons below."
+                : "Add LRC or audio files with the buttons below"}
                 </p>
                 <div className="flex gap-2">
                     <Button onClick={handleSelectFiles} size="lg">
