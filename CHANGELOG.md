@@ -2,7 +2,7 @@
 
 All notable changes to Lymuru will be documented in this file.
 
-## [Unreleased]
+## [1.1.1] - 2026-11-18
 
 ### Fixed
 - The app header and update dialog showed "v1.0.0" in the 1.1.0 release. The UI now reads its version from `wails.json`, the same source as the backend and the release workflow.
