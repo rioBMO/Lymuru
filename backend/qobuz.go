@@ -474,36 +474,6 @@ func (q *QobuzDownloader) DownloadFile(url, filepath string) error {
 	return nil
 }
 
-func (q *QobuzDownloader) DownloadCoverArt(coverURL, filepath string) error {
-	if coverURL == "" {
-		return fmt.Errorf("no cover URL provided")
-	}
-
-	req, err := NewRequestWithDefaultHeaders(http.MethodGet, coverURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create cover request: %w", err)
-	}
-
-	resp, err := q.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to download cover: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("cover download failed with status %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(filepath)
-	if err != nil {
-		return fmt.Errorf("failed to create cover file: %w", err)
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
 func buildQobuzFilename(title, artist, album, albumArtist, releaseDate string, trackNumber, discNumber int, format string, includeTrackNumber bool, position int, useAlbumTrackNumber bool, extra ...string) string {
 	var filename string
 	isrc := ""

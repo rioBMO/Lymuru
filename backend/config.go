@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -218,21 +217,4 @@ func EnsureDownloadsFolder(path string) error {
 		return nil
 	}
 	return os.MkdirAll(path, 0o755)
-}
-
-// scanSettings is unused but kept for reference when expanding the schema.
-func scanSettings(rows *sql.Rows) (Settings, error) {
-	var s Settings
-	for rows.Next() {
-		var raw json.RawMessage
-		var k string
-		if err := rows.Scan(&k, &raw); err != nil {
-			return s, err
-		}
-		switch k {
-		case "settings_v1":
-			_ = json.Unmarshal(raw, &s)
-		}
-	}
-	return s, rows.Err()
 }

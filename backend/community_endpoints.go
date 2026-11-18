@@ -138,11 +138,6 @@ func GetQobuzCommunityDownloadURL() string {
 	return base + communityDownloadPath
 }
 
-func GetQobuzCommunityHealthURL() string {
-	base, _ := decryptCommunityURL(qobuzCommunityURLNonce, qobuzCommunityURLCiphertext, qobuzCommunityURLTag)
-	return base + "/health"
-}
-
 func GetAmazonCommunityDownloadURL() string {
 	base, _ := decryptCommunityURL(amazonCommunityURLNonce, amazonCommunityURLCiphertext, amazonCommunityURLTag)
 	return base + communityDownloadPath

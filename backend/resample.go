@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -13,13 +12,6 @@ import (
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-// FlacInfo holds audio stream metadata for a single file.
-type FlacInfo struct {
-	Path          string `json:"path"`
-	SampleRate    uint32 `json:"sample_rate"`
-	BitsPerSample uint8  `json:"bits_per_sample"`
-}
 
 // ResampleRequest defines a batch resampling operation.
 type ResampleRequest struct {
@@ -39,69 +31,6 @@ type ResampleResult struct {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-// GetFlacInfoBatch returns audio stream metadata for multiple files in parallel.
-func GetFlacInfoBatch(paths []string) []FlacInfo {
-	results := make([]FlacInfo, len(paths))
-	var wg sync.WaitGroup
-
-	for i, path := range paths {
-		wg.Add(1)
-		go func(idx int, p string) {
-			defer wg.Done()
-			info := FlacInfo{Path: p}
-
-			ffprobePath, err := GetFFprobePath()
-			if err != nil {
-				results[idx] = info
-				return
-			}
-
-			args := []string{
-				"-v", "error",
-				"-select_streams", "a:0",
-				"-show_entries", "stream=sample_rate,bits_per_raw_sample,bits_per_sample",
-				"-of", "default=noprint_wrappers=0",
-				p,
-			}
-			cmd := exec.Command(ffprobePath, args...)
-			setHideWindow(cmd)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				results[idx] = info
-				return
-			}
-
-			kvMap := make(map[string]string)
-			for _, line := range strings.Split(string(out), "\n") {
-				if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
-					kvMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
-				}
-			}
-
-			if v, ok := kvMap["sample_rate"]; ok {
-				if s, err := strconv.Atoi(v); err == nil {
-					info.SampleRate = uint32(s)
-				}
-			}
-
-			bits := 0
-			if v, ok := kvMap["bits_per_raw_sample"]; ok && v != "N/A" && v != "" {
-				bits, _ = strconv.Atoi(v)
-			}
-			if bits == 0 {
-				if v, ok := kvMap["bits_per_sample"]; ok && v != "N/A" && v != "" {
-					bits, _ = strconv.Atoi(v)
-				}
-			}
-			info.BitsPerSample = uint8(bits)
-			results[idx] = info
-		}(i, path)
-	}
-
-	wg.Wait()
-	return results
-}
 
 // ResampleAudio converts one or more audio files to the requested sample rate / bit depth.
 // Outputs are written to a subfolder named after the target format (e.g. "44.1kHz 16bit").

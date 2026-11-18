@@ -3,7 +3,6 @@ package backend
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -17,39 +16,6 @@ var downloadCancelState = struct {
 	active   int
 	stopping bool
 }{}
-
-func BeginDownloadCancellationScope() (context.Context, func()) {
-	downloadCancelState.Lock()
-	defer downloadCancelState.Unlock()
-
-	if downloadCancelState.ctx == nil || downloadCancelState.active == 0 {
-		downloadCancelState.ctx, downloadCancelState.cancel = context.WithCancel(context.Background())
-		downloadCancelState.stopping = false
-	}
-
-	downloadCancelState.active++
-	ctx := downloadCancelState.ctx
-	once := sync.Once{}
-
-	return ctx, func() {
-		once.Do(func() {
-			downloadCancelState.Lock()
-			defer downloadCancelState.Unlock()
-
-			if downloadCancelState.active > 0 {
-				downloadCancelState.active--
-			}
-			if downloadCancelState.active == 0 {
-				if downloadCancelState.cancel != nil {
-					downloadCancelState.cancel()
-				}
-				downloadCancelState.ctx = nil
-				downloadCancelState.cancel = nil
-				downloadCancelState.stopping = false
-			}
-		})
-	}
-}
 
 func ActiveDownloadContext() context.Context {
 	downloadCancelState.Lock()
@@ -75,13 +41,6 @@ func ForceStopActiveDownloads() {
 
 	CancelQueuedAndDownloadingItems()
 	SetDownloading(false)
-}
-
-func IsDownloadForceStopRequested() bool {
-	downloadCancelState.Lock()
-	defer downloadCancelState.Unlock()
-
-	return downloadCancelState.stopping
 }
 
 func CheckDownloadCancelled() error {
@@ -116,14 +75,4 @@ func IsDownloadCancelledError(err error) bool {
 		return false
 	}
 	return errors.Is(err, ErrDownloadCancelled) || errors.Is(err, context.Canceled)
-}
-
-func WrapDownloadCancelled(err error) error {
-	if err == nil {
-		return nil
-	}
-	if IsDownloadForceStopRequested() || errors.Is(err, context.Canceled) {
-		return fmt.Errorf("%w", ErrDownloadCancelled)
-	}
-	return err
 }

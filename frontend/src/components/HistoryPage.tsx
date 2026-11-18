@@ -9,6 +9,7 @@ import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, Pagi
 import { GetDownloadHistory, ClearDownloadHistory, GetPreviewURL, GetFetchHistory, DeleteDownloadHistoryItem, DeleteFetchHistoryItem, ClearFetchHistoryByType } from "../../wailsjs/go/main/App";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { openExternal } from "@/lib/utils";
+import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { getPreviewVolume } from "@/lib/preview";
 import { createPreviewPlayback, type PreviewPlayback } from "@/lib/preview-player";
 import { TidalIcon, QobuzIcon, AmazonIcon } from "./PlatformIcons";
@@ -225,28 +226,29 @@ export function HistoryPage({ onHistorySelect }: HistoryPageProps) {
             const url = await GetPreviewURL(spotifyId);
             if (url) {
                 const playback = await createPreviewPlayback(url, getPreviewVolume());
-                const audio = playback.audio;
                 playbackRef.current = playback;
-                audio.onended = () => {
+                const stop = () => {
                     setPlayingPreviewId(null);
-                    if (playbackRef.current?.audio === audio) {
-                        playbackRef.current.destroy();
+                    if (playbackRef.current === playback) {
+                        playback.destroy();
                         playbackRef.current = null;
                     }
                 };
-                audio.onerror = () => {
-                    setPlayingPreviewId(null);
-                    if (playbackRef.current?.audio === audio) {
-                        playbackRef.current.destroy();
-                        playbackRef.current = null;
-                    }
-                };
-                audio.play();
+                playback.onEnded(stop);
+                playback.onError((message) => {
+                    stop();
+                    toast.error(message);
+                });
+                playback.play();
                 setPlayingPreviewId(id);
+            }
+            else {
+                toast.error("No preview available");
             }
         }
         catch (e) {
             console.error("Failed to play preview:", e);
+            toast.error(`Failed to play preview: ${e}`);
         }
     };
     const handleClearDownloadHistory = async () => {

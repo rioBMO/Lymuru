@@ -55,6 +55,14 @@ jobs:
         env:
           CGO_ENABLED: 1
 
+      - name: Type check
+        run: bun run typecheck
+        working-directory: frontend
+
+      - name: Frontend tests
+        run: bun test
+        working-directory: frontend
+
       - name: Add version to file names
         id: names
         run: |

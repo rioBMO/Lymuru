@@ -359,14 +359,6 @@ func (a *App) MarkDownloadItemFailed(itemID, errorMsg string) {
 	backend.FailDownloadItem(itemID, errorMsg)
 }
 
-func (a *App) MarkDownloadItemCompleted(itemID, filePath string, finalSizeMB float64) {
-	backend.CompleteDownloadItem(itemID, filePath, finalSizeMB)
-}
-
-func (a *App) MarkDownloadItemSkipped(itemID, filePath string) {
-	backend.SkipDownloadItem(itemID, filePath)
-}
-
 func (a *App) ForceStopDownloads() {
 	backend.ForceStopActiveDownloads()
 }

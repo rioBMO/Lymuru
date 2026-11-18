@@ -219,38 +219,6 @@ func GetSeparator() string {
 	return "; "
 }
 
-func SanitizeFolderPath(folderPath string) string {
-
-	normalizedPath := strings.ReplaceAll(folderPath, "/", string(filepath.Separator))
-
-	sep := string(filepath.Separator)
-
-	parts := strings.Split(normalizedPath, sep)
-	sanitizedParts := make([]string, 0, len(parts))
-
-	for i, part := range parts {
-
-		if i == 0 && len(part) == 2 && part[1] == ':' {
-			sanitizedParts = append(sanitizedParts, part)
-			continue
-		}
-
-		if i == 0 && part == "" {
-			sanitizedParts = append(sanitizedParts, part)
-			continue
-		}
-
-		sanitized := sanitizeFolderName(part)
-		if sanitized != "" {
-			sanitizedParts = append(sanitizedParts, sanitized)
-		}
-	}
-
-	return strings.Join(sanitizedParts, sep)
-}
-
-func sanitizeFolderName(name string) string { return SanitizeFilename(name) }
-
 func sanitizeFilename(name string) string {
 	return SanitizeFilename(name)
 }

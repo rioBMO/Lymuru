@@ -117,26 +117,6 @@ func normalizeCustomQobuzAPIValue(value interface{}) string {
 	return ""
 }
 
-// GetExistingFileCheckModeSetting returns how to check for existing files.
-func GetExistingFileCheckModeSetting() string {
-	settings, err := LoadConfigSettings()
-	if err != nil || settings == nil {
-		return "filename"
-	}
-
-	rawMode, _ := settings["existingFileCheckMode"].(string)
-	return normalizeExistingFileCheckMode(rawMode)
-}
-
-func normalizeExistingFileCheckMode(value string) string {
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "isrc", "upc":
-		return "isrc"
-	default:
-		return "filename"
-	}
-}
-
 // GetLinkResolverSetting returns the configured link resolver provider.
 func GetLinkResolverSetting() string {
 	settings, err := LoadConfigSettings()
@@ -170,77 +150,4 @@ func GetLinkResolverAllowFallback() bool {
 	}
 
 	return allowFallback
-}
-
-// SanitizeSettingsMap normalizes settings values.
-func SanitizeSettingsMap(settings map[string]interface{}) map[string]interface{} {
-	if settings == nil {
-		return nil
-	}
-
-	sanitized := make(map[string]interface{}, len(settings))
-	for key, value := range settings {
-		sanitized[key] = value
-	}
-
-	customAPI := normalizeCustomTidalAPIValue(sanitized["customTidalApi"])
-	sanitized["customTidalApi"] = customAPI
-	sanitized["downloader"] = sanitizeDownloaderValue(sanitized["downloader"])
-	sanitized["autoOrder"] = sanitizeAutoOrderValue(sanitized["autoOrder"])
-
-	return sanitized
-}
-
-func sanitizeDownloaderValue(value interface{}) string {
-	downloader, _ := value.(string)
-	switch strings.TrimSpace(strings.ToLower(downloader)) {
-	case "tidal":
-		return "tidal"
-	case "qobuz":
-		return "qobuz"
-	case "amazon":
-		return "amazon"
-	default:
-		return "auto"
-	}
-}
-
-func sanitizeAutoOrderValue(value interface{}) string {
-	autoOrder, _ := value.(string)
-	allowed := map[string]struct{}{
-		"tidal":  {},
-		"qobuz":  {},
-		"amazon": {},
-	}
-	fallback := "tidal-qobuz-amazon"
-
-	seen := make(map[string]struct{})
-	parts := make([]string, 0, 3)
-	for _, rawPart := range strings.Split(strings.TrimSpace(strings.ToLower(autoOrder)), "-") {
-		part := strings.TrimSpace(rawPart)
-		if part == "" {
-			continue
-		}
-		if _, ok := allowed[part]; !ok {
-			continue
-		}
-		if _, ok := seen[part]; ok {
-			continue
-		}
-		seen[part] = struct{}{}
-		parts = append(parts, part)
-	}
-
-	if len(parts) < 2 {
-		return fallback
-	}
-
-	return strings.Join(parts, "-")
-}
-
-// SetMacOSFileIconFromImage is a no-op on non-macOS platforms.
-// On macOS, SpotiFLAC sets custom file icons from cover art images.
-func SetMacOSFileIconFromImage(filePath string, tmpPath string, iconSize int) error {
-	// No-op — macOS file icon support is not ported.
-	return nil
 }

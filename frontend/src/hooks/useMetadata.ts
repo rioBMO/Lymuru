@@ -263,7 +263,7 @@ export function useMetadata() {
         external_urls: string;
     }) => {
         logger.debug(`artist clicked: ${artist.name}`);
-        const resolvedArtistUrl = artist.external_urls.trim() || (await resolveArtistUrlBySearch(artist.name)) || "";
+        const resolvedArtistUrl = (artist.external_urls ?? "").trim() ||(await resolveArtistUrlBySearch(artist.name)) || "";
         if (!resolvedArtistUrl) {
             toast.error(`Artist not found: ${artist.name}`);
             return "";

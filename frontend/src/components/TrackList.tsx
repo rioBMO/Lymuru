@@ -1,12 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Download, CheckCircle, XCircle, FileCheck, FileText, Globe, ImageDown, Play, Pause } from "lucide-react";
+import { Download, CheckCircle, XCircle, FileCheck, FileText, ImageDown, Play, Pause } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import { Pagination, PaginationContent, PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, } from "@/components/ui/pagination";
 import type { TrackMetadata, TrackAvailability } from "@/types/api";
 import { usePreview } from "@/hooks/usePreview";
-import { AvailabilityLinks, hasAvailabilityLinks } from "./AvailabilityLinks";
 import { buildClickableArtists, getClickableArtistKey } from "@/lib/artist-links";
 import { useState } from "react";
 interface TrackListProps {
@@ -177,22 +176,6 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
             return plays;
         return num.toLocaleString();
     };
-    const getAvailabilityButtonIcon = (spotifyId?: string) => {
-        if (!spotifyId) {
-            return <Globe className="h-4 w-4"/>;
-        }
-        if (checkingAvailabilityTrack === spotifyId) {
-            return <Spinner />;
-        }
-        const availability = availabilityMap?.get(spotifyId);
-        if (!availability) {
-            return <Globe className="h-4 w-4"/>;
-        }
-        if (hasAvailabilityLinks(availability)) {
-            return <CheckCircle className="h-4 w-4 text-green-500"/>;
-        }
-        return <XCircle className="h-4 w-4 text-red-500"/>;
-    };
     return (<div className="space-y-4">
     <div className="rounded-md border">
       <div className="overflow-x-auto">
@@ -357,16 +340,6 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>Download Separate Cover</p>
-                    </TooltipContent>
-                  </Tooltip>)}
-                  {track.spotify_id && onCheckAvailability && (<Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button onClick={() => onCheckAvailability(track.spotify_id!)} size="icon" variant="outline" disabled={checkingAvailabilityTrack === track.spotify_id}>
-                        {getAvailabilityButtonIcon(track.spotify_id)}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="pointer-events-auto">
-                      <AvailabilityLinks availability={track.spotify_id ? availabilityMap?.get(track.spotify_id) : undefined}/>
                     </TooltipContent>
                   </Tooltip>)}
                 </div>

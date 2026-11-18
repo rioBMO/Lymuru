@@ -2,7 +2,6 @@ package backend
 
 import (
 	"errors"
-	"sort"
 	"sync"
 )
 
@@ -145,11 +144,4 @@ func (m *TaskManager) Cancel(taskID string) error {
 // Count returns the number of active (non-complete, non-error) tasks.
 func (m *TaskManager) Count() int {
 	return len(m.ListActive())
-}
-
-// SortTasks sorts a slice of tasks by creation time, newest first.
-func SortTasks(ts []Task) {
-	sort.SliceStable(ts, func(i, j int) bool {
-		return ts[i].CreatedAt > ts[j].CreatedAt
-	})
 }
