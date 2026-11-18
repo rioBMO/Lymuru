@@ -950,9 +950,9 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                 <div className="space-y-2">
                   <Label>Session File</Label>
                   <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2 font-mono text-xs">
-                    data/deezload_session.session
+                    %APPDATA%\Lymuru\deezload_session.session
                   </p>
-                  <p className="text-xs text-muted-foreground">Auto-managed in the app data directory.</p>
+                  <p className="text-xs text-muted-foreground">Auto-managed in the app data directory (open it with "Open Config Folder").</p>
                 </div>
 
                 {/* Status */}

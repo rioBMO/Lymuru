@@ -1,13 +1,49 @@
 # build.ps1 - Script to build Wails App (EXE, NSIS Installer, and ZIP)
+#
+#   .\build.ps1                 # full build
+#   .\build.ps1 -SkipBindings   # reuse frontend/wailsjs (needed when Windows Smart App
+#                               # Control blocks the temporary wailsbindings.exe)
 
-Write-Host "Checking if Wails CLI is installed..."
-if (!(Get-Command wails -ErrorAction SilentlyContinue)) {
-    Write-Host "Wails CLI not found. Installing..."
-    go install github.com/wailsapp/wails/v2/cmd/wails@latest
+param(
+    [switch]$SkipBindings
+)
+
+# Keep the CLI on the same Wails version as go.mod (a mismatch triggers warnings
+# and can generate incompatible bindings/runtime).
+$wailsVersion = (go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2).Trim()
+Write-Host "Checking Wails CLI (go.mod uses $wailsVersion)..."
+$cliVersion = $null
+if (Get-Command wails -ErrorAction SilentlyContinue) {
+    $cliVersion = (wails version 2>$null | Select-String -Pattern 'v\d+\.\d+\.\d+' | Select-Object -First 1).Matches.Value
+}
+if ($cliVersion -ne $wailsVersion) {
+    Write-Host "Installing Wails CLI $wailsVersion (found: $(if ($cliVersion) { $cliVersion } else { 'none' }))..."
+    go install "github.com/wailsapp/wails/v2/cmd/wails@$wailsVersion"
+}
+
+# winget/the NSIS installer do not add makensis to PATH; look in the default locations.
+if (!(Get-Command makensis -ErrorAction SilentlyContinue)) {
+    $nsisDirs = @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS")
+    $nsisDir = $nsisDirs | Where-Object { Test-Path (Join-Path $_ "makensis.exe") } | Select-Object -First 1
+    if ($nsisDir) {
+        $env:Path = "$nsisDir;$env:Path"
+        Write-Host "Using NSIS from $nsisDir"
+    } else {
+        Write-Host "NSIS (makensis) not found - install it with: winget install NSIS.NSIS"
+    }
+}
+
+$wailsArgs = @("build", "-nsis")
+if ($SkipBindings) {
+    if (!(Test-Path "frontend\wailsjs\go\main\App.js")) {
+        Write-Error "-SkipBindings needs existing bindings in frontend\wailsjs. Run 'wails build' once without it."
+        exit 1
+    }
+    $wailsArgs += "-skipbindings"
 }
 
 Write-Host "Building Wails App (including NSIS Installer)..."
-wails build -nsis
+wails @wailsArgs
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Wails build failed."

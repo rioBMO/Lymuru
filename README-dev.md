@@ -186,7 +186,8 @@ Events (progress, auth prompts) are emitted as JSON lines on **stderr** so they 
 | `backend/lyrics_reader.go` | LRC parsing and embedding |
 | `backend/romanize.go` | CJK romanization (Romaji, Pinyin, Korean) |
 | `backend/tagging.go` | FLAC/MP3/M4A metadata tagging |
-| `backend/logger.go` | Structured file logger (`data/logs/lymuru.log`) |
+| `backend/logger.go` | Structured file logger (`<dataDir>/logs/lymuru.log`) |
+| `backend/datadir.go` | Resolves the per-user data dir and migrates legacy `./data` |
 | `backend/keychain.go` | Credential storage via OS keychain |
 | `backend/storage/db.go` | SQLite connection and schema management |
 | `backend/link_resolver.go` / `songlink.go` | Multi-platform link resolution |
@@ -232,7 +233,23 @@ frontend/src/
 
 ## Settings & Database
 
-### SQLite (`data/lymuru.db`)
+### Data directory
+
+Everything the app writes at runtime (database, logs, Telegram session) lives in a
+per-user folder, never next to the executable, so an installed copy in
+`C:\Program Files` works:
+
+| OS | Location |
+|----|----------|
+| Windows | `%APPDATA%\Lymuru` |
+| macOS | `~/Library/Application Support/Lymuru` |
+| Linux | `~/.config/Lymuru` |
+
+Set `LYMURU_DATA_DIR` to override it (e.g. for a portable setup). On first launch,
+an existing `lymuru.db` from an older build's `./data` folder is copied over.
+FFmpeg binaries are stored separately in `~/.lymuru`.
+
+### SQLite (`<dataDir>/lymuru.db`)
 
 Created automatically on first launch. Tables:
 - `downloads` — completed download records (track name, artist, album, source, file path, timestamp)
