@@ -1,4 +1,12 @@
 # build.ps1 - Script to build Wails App (EXE, NSIS Installer, and ZIP)
+#
+#   .\build.ps1                 # full build
+#   .\build.ps1 -SkipBindings   # reuse frontend/wailsjs (needed when Windows Smart App
+#                               # Control blocks the temporary wailsbindings.exe)
+
+param(
+    [switch]$SkipBindings
+)
 
 Write-Host "Checking if Wails CLI is installed..."
 if (!(Get-Command wails -ErrorAction SilentlyContinue)) {
@@ -6,8 +14,29 @@ if (!(Get-Command wails -ErrorAction SilentlyContinue)) {
     go install github.com/wailsapp/wails/v2/cmd/wails@latest
 }
 
+# winget/the NSIS installer do not add makensis to PATH; look in the default locations.
+if (!(Get-Command makensis -ErrorAction SilentlyContinue)) {
+    $nsisDirs = @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS")
+    $nsisDir = $nsisDirs | Where-Object { Test-Path (Join-Path $_ "makensis.exe") } | Select-Object -First 1
+    if ($nsisDir) {
+        $env:Path = "$nsisDir;$env:Path"
+        Write-Host "Using NSIS from $nsisDir"
+    } else {
+        Write-Host "NSIS (makensis) not found - install it with: winget install NSIS.NSIS"
+    }
+}
+
+$wailsArgs = @("build", "-nsis")
+if ($SkipBindings) {
+    if (!(Test-Path "frontend\wailsjs\go\main\App.js")) {
+        Write-Error "-SkipBindings needs existing bindings in frontend\wailsjs. Run 'wails build' once without it."
+        exit 1
+    }
+    $wailsArgs += "-skipbindings"
+}
+
 Write-Host "Building Wails App (including NSIS Installer)..."
-wails build -nsis
+wails @wailsArgs
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Wails build failed."

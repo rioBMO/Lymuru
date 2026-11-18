@@ -26,13 +26,15 @@ type App struct {
 	config  *backend.Config
 	sidecar *backend.DeezerSidecar
 	started bool
+	dataDir string // absolute per-user data dir (db, logs, sidecar session)
 }
 
 // NewApp creates a new App. Call SetStorage before startup.
-func NewApp() *App {
+func NewApp(dataDir string) *App {
 	return &App{
 		tasks:   backend.NewTaskManager(),
 		started: false,
+		dataDir: dataDir,
 	}
 }
 
@@ -62,7 +64,7 @@ func (a *App) startup(ctx context.Context) {
 		if !settings.SidecarEnabled {
 			return
 		}
-		a.sidecar = backend.NewDeezerSidecar("data", settings.PythonPath)
+		a.sidecar = backend.NewDeezerSidecar(a.dataDir, settings.PythonPath)
 		if err := a.sidecar.Start(); err != nil {
 			backend.LogWarn("[Sidecar] start failed: %v", err)
 			wailsruntime.EventsEmit(a.ctx, "sidecar:status", backend.SidecarStatus{
@@ -624,13 +626,11 @@ func (a *App) SelectFolder(defaultPath string) (string, error) {
 
 // OpenConfigFolder opens the Lymuru data/config directory in the OS file explorer.
 func (a *App) OpenConfigFolder() error {
-	// Open the data directory where lymuru.db and config live.
-	cwd, _ := os.Getwd()
-	configDir := filepath.Join(cwd, "data")
-	if _, err := os.Stat(configDir); err != nil {
-		_ = os.MkdirAll(configDir, 0o755)
+	// Open the data directory where lymuru.db and logs live.
+	if err := os.MkdirAll(a.dataDir, 0o755); err != nil {
+		return fmt.Errorf("create data dir: %w", err)
 	}
-	return a.OpenFolder(configDir)
+	return a.OpenFolder(a.dataDir)
 }
 
 // CheckCustomTidalAPI verifies a custom Tidal community API endpoint is reachable.
@@ -812,7 +812,7 @@ func (a *App) RestartSidecar() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	a.sidecar = backend.NewDeezerSidecar("data", settings.PythonPath)
+	a.sidecar = backend.NewDeezerSidecar(a.dataDir, settings.PythonPath)
 	if err := a.sidecar.Start(); err != nil {
 		return err
 	}

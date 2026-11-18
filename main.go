@@ -3,7 +3,9 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/lymuru/lymuru/backend"
 	"github.com/lymuru/lymuru/backend/storage"
@@ -23,19 +25,36 @@ func main() {
 	// Read the product version from wails.json and seed the backend.
 	backend.SetAppVersion(readProductVersion())
 
-	app := NewApp()
-
-	// Try to open the SQLite database early so we fail fast on misconfig.
-	db, err := storage.Open("data/lymuru.db")
+	// Per-user data dir (%APPDATA%\Lymuru on Windows). Never relative to the
+	// working directory: an installed copy lives in read-only Program Files.
+	dataDir, err := backend.ResolveDataDir()
 	if err != nil {
-		log.Fatalf("storage open: %v", err)
+		fatalStartup("Could not locate the Lymuru data folder", err)
 	}
-	app.SetStorage(db)
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		fatalStartup("Could not create the Lymuru data folder "+dataDir, err)
+	}
 
-	// Initialize structured logger (writes to data/logs/lymuru.log).
-	if err := backend.InitLogger("data"); err != nil {
+	// Initialize structured logger (writes to <dataDir>/logs/lymuru.log).
+	if err := backend.InitLogger(dataDir); err != nil {
 		log.Printf("logger init: %v (continuing without file log)", err)
 	}
+
+	// Carry over the database from builds that stored it in ./data.
+	if src, err := backend.MigrateLegacyDataDir(dataDir, backend.LegacyDataDirCandidates()); err != nil {
+		backend.LogWarn("[Startup] legacy data migration failed: %v", err)
+	} else if src != "" {
+		backend.LogInfo("[Startup] migrated data from %s to %s", src, dataDir)
+	}
+
+	app := NewApp(dataDir)
+
+	// Open the SQLite database early so we fail fast on misconfig.
+	db, err := storage.Open(backend.DatabasePath(dataDir))
+	if err != nil {
+		fatalStartup("Could not open the Lymuru database in "+dataDir, err)
+	}
+	app.SetStorage(db)
 
 	err = wails.Run(&options.App{
 		Title:     "Lymuru",
@@ -67,8 +86,17 @@ func main() {
 		},
 	})
 	if err != nil {
-		log.Fatal("Error:", err.Error())
+		fatalStartup("Lymuru failed to start", err)
 	}
+}
+
+// fatalStartup records a startup failure and exits. The release binary has no
+// console, so the error is also shown in a native dialog where supported.
+func fatalStartup(msg string, err error) {
+	full := fmt.Sprintf("%s:\n\n%v", msg, err)
+	backend.LogError("[Startup] %s", full)
+	showFatalDialog("Lymuru", full)
+	log.Fatal(full)
 }
 
 func readProductVersion() string {
