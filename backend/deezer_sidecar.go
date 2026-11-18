@@ -246,6 +246,10 @@ func (s *DeezerSidecar) Start() error {
 	// Read async events from stderr.
 	go func() {
 		defer close(s.eventDone)
+		// This goroutine is the only sender on s.events, so it closes it.
+		// Closing it in Stop() instead could race with a late stderr line
+		// and panic with "send on closed channel".
+		defer close(s.events)
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -386,9 +390,8 @@ func (s *DeezerSidecar) Stop() {
 	}
 	s.running = false
 	s.authenticated = false
-
-	// Close the events channel so the forwarding goroutine exits.
-	close(s.events)
+	// The events channel is closed by the stderr reader once the killed
+	// process's stderr reaches EOF, which also ends the forwarding goroutine.
 }
 
 // IsRunning returns true if the sidecar process is alive.
@@ -616,6 +619,11 @@ func resolvePython() string {
 		if isRealPython(p) {
 			return p
 		}
+	}
+	// PATH is captured at launch, so a Python installed while the app runs (or
+	// installed without "Add to PATH") is only found in its standard location.
+	if p := findInstalledPython(); p != "" && isRealPython(p) {
+		return p
 	}
 	return ""
 }

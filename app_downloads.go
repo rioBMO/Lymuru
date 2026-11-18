@@ -188,7 +188,8 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 
 	case "deezer":
-		if a.sidecar == nil || !a.sidecar.IsRunning() {
+		sc := a.currentSidecar()
+		if sc == nil || !sc.IsRunning() {
 			backend.FailDownloadItem(req.ItemID, "Deezer sidecar is not running")
 			return DownloadResponse{
 				Success: false,
@@ -204,7 +205,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 				ItemID:  req.ItemID,
 			}, fmt.Errorf("track info required")
 		}
-		search, searchErr := a.sidecar.Search(req.ArtistName, req.TrackName)
+		search, searchErr := sc.Search(req.ArtistName, req.TrackName)
 		if searchErr != nil {
 			backend.FailDownloadItem(req.ItemID, fmt.Sprintf("Deezer search: %v", searchErr))
 			return DownloadResponse{
@@ -225,7 +226,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		// Read LRC export setting for the sidecar.
 		settings, _ := a.config.Load()
 		exportLrc := settings.ExportLrcFile
-		filePath, dlErr := a.sidecar.Download(searchKey, 0, req.OutputDir, exportLrc)
+		filePath, dlErr := sc.Download(searchKey, 0, req.OutputDir, exportLrc)
 		if dlErr != nil {
 			backend.FailDownloadItem(req.ItemID, fmt.Sprintf("Deezer download: %v", dlErr))
 			return DownloadResponse{

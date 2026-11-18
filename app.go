@@ -24,8 +24,11 @@ type App struct {
 	tasks   *backend.TaskManager
 	history *backend.History
 	config  *backend.Config
-	sidecar *backend.DeezerSidecar
+	sidecar *backend.DeezerSidecar // guarded by sidecarMu; use currentSidecar()
 	started bool
+
+	// sidecarMu serializes sidecar start/stop (startup, settings, restart).
+	sidecarMu sync.Mutex
 	dataDir string // absolute per-user data dir (db, logs, sidecar session)
 }
 
@@ -61,41 +64,98 @@ func (a *App) startup(ctx context.Context) {
 			backend.LogWarn("[Sidecar] config load failed: %v", err)
 			return
 		}
-		if !settings.SidecarEnabled {
-			return
+		if settings.SidecarEnabled {
+			_ = a.startSidecar() // failures are logged and emitted as sidecar:status
 		}
-		a.sidecar = backend.NewDeezerSidecar(a.dataDir, settings.PythonPath)
-		if err := a.sidecar.Start(); err != nil {
-			backend.LogWarn("[Sidecar] start failed: %v", err)
-			wailsruntime.EventsEmit(a.ctx, "sidecar:status", backend.SidecarStatus{
-				Running: false,
-				Error:   err.Error(),
-			})
-			return
-		}
-		// Notify frontend when the sidecar status changes (e.g. process exit).
-		a.sidecar.SetOnStatusChange(func(st backend.SidecarStatus) {
-			wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
-		})
-		// Forward sidecar events to the frontend.
-		go func() {
-			for ev := range a.sidecar.EventChan() {
+	}()
+}
+
+// currentSidecar returns the active sidecar, or nil when Deezer is off.
+func (a *App) currentSidecar() *backend.DeezerSidecar {
+	a.sidecarMu.Lock()
+	defer a.sidecarMu.Unlock()
+	return a.sidecar
+}
+
+func (a *App) emitSidecarStatus(st backend.SidecarStatus) {
+	if a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
+	}
+}
+
+// startSidecar (re)starts the Deezer sidecar from the saved settings and the
+// keychain credentials, then connects to Telegram in the background (silently
+// with a saved session, otherwise via the auth_needed event).
+func (a *App) startSidecar() error {
+	settings, err := a.config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	a.sidecarMu.Lock()
+	defer a.sidecarMu.Unlock()
+
+	if a.sidecar != nil {
+		a.sidecar.Stop()
+	}
+	sc := backend.NewDeezerSidecar(a.dataDir, settings.PythonPath)
+	// Keep the instance even if Start fails so GetSidecarStatus reports the error.
+	a.sidecar = sc
+	if err := sc.Start(); err != nil {
+		backend.LogWarn("[Sidecar] start failed: %v", err)
+		a.emitSidecarStatus(backend.SidecarStatus{Running: false, Error: err.Error()})
+		return err
+	}
+	// Notify the frontend when the status changes (e.g. process exit).
+	sc.SetOnStatusChange(a.emitSidecarStatus)
+	// Forward sidecar events; the channel closes when the process ends.
+	go func() {
+		for ev := range sc.EventChan() {
+			if a.ctx != nil {
 				wailsruntime.EventsEmit(a.ctx, "sidecar:event", ev)
 			}
-		}()
-		wailsruntime.EventsEmit(a.ctx, "sidecar:status", a.sidecar.Status())
-		// Auto-connect to Telegram. Blocks until connected or auth timeout.
-		go func() {
-			if err := a.sidecar.Connect(); err != nil {
-				backend.LogWarn("[Sidecar] connect failed: %v", err)
-				st := a.sidecar.Status()
-				st.Error = err.Error()
-				wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
-			} else {
-				backend.LogInfo("[Sidecar] connected to Telegram")
-			}
-		}()
+		}
 	}()
+	a.emitSidecarStatus(sc.Status())
+	go func() {
+		if err := sc.Connect(); err != nil {
+			backend.LogWarn("[Sidecar] connect failed: %v", err)
+			st := sc.Status()
+			st.Error = err.Error()
+			a.emitSidecarStatus(st)
+		} else {
+			backend.LogInfo("[Sidecar] connected to Telegram")
+		}
+	}()
+	return nil
+}
+
+// stopSidecar stops the Deezer sidecar if it is running.
+func (a *App) stopSidecar() {
+	a.sidecarMu.Lock()
+	defer a.sidecarMu.Unlock()
+	if a.sidecar != nil {
+		a.sidecar.Stop()
+		a.sidecar = nil
+		backend.LogInfo("[Sidecar] stopped")
+	}
+	a.emitSidecarStatus(backend.SidecarStatus{Running: false})
+}
+
+// applySidecarSettings starts, stops or restarts the sidecar after the Deezer
+// settings are saved, so changes apply without restarting the app.
+func (a *App) applySidecarSettings(prev, next backend.Settings) {
+	if !next.SidecarEnabled {
+		if prev.SidecarEnabled || a.currentSidecar() != nil {
+			go a.stopSidecar()
+		}
+		return
+	}
+	sc := a.currentSidecar()
+	notRunning := sc == nil || !sc.IsRunning()
+	if notRunning || prev.PythonPath != next.PythonPath {
+		go func() { _ = a.startSidecar() }()
+	}
 }
 
 // shutdown is called by Wails before the window closes.
@@ -103,9 +163,12 @@ func (a *App) shutdown(ctx context.Context) {
 	a.mu.Lock()
 	a.started = false
 	a.mu.Unlock()
+	a.sidecarMu.Lock()
 	if a.sidecar != nil {
 		a.sidecar.Stop()
+		a.sidecar = nil
 	}
+	a.sidecarMu.Unlock()
 	if a.storage != nil {
 		_ = a.storage.Close()
 	}
@@ -472,7 +535,14 @@ func (a *App) SaveSettings(s map[string]interface{}) error {
 			return err
 		}
 	}
-	return a.config.Save(bs)
+	prev, prevErr := a.config.Load()
+	if err := a.config.Save(bs); err != nil {
+		return err
+	}
+	if prevErr == nil {
+		a.applySidecarSettings(prev, bs)
+	}
+	return nil
 }
 
 // AddLyrics searches and embeds lyrics directly.
@@ -786,10 +856,11 @@ func (a *App) AnalyzeAudio(filePath string) (*backend.AnalysisResult, error) {
 
 // GetSidecarStatus returns the current sidecar state.
 func (a *App) GetSidecarStatus() backend.SidecarStatus {
-	if a.sidecar == nil {
+	sc := a.currentSidecar()
+	if sc == nil {
 		return backend.SidecarStatus{Running: false}
 	}
-	return a.sidecar.Status()
+	return sc.Status()
 }
 
 // SubmitSidecarAuthCode forwards a Telegram auth code to the sidecar.
@@ -797,65 +868,36 @@ func (a *App) SubmitSidecarAuthCode(code string) error {
 	if code == "" {
 		return fmt.Errorf("code is required")
 	}
-	if a.sidecar == nil {
+	sc := a.currentSidecar()
+	if sc == nil {
 		return fmt.Errorf("sidecar not running")
 	}
-	return a.sidecar.SubmitAuthCode(code)
+	return sc.SubmitAuthCode(code)
 }
 
 // RestartSidecar stops and restarts the sidecar subprocess.
 func (a *App) RestartSidecar() error {
-	if a.sidecar != nil {
-		a.sidecar.Stop()
-	}
-	settings, err := a.config.Load()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	a.sidecar = backend.NewDeezerSidecar(a.dataDir, settings.PythonPath)
-	if err := a.sidecar.Start(); err != nil {
-		return err
-	}
-	a.sidecar.SetOnStatusChange(func(st backend.SidecarStatus) {
-		wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
-	})
-	wailsruntime.EventsEmit(a.ctx, "sidecar:status", a.sidecar.Status())
-	// Restart event stream.
-	go func() {
-		for ev := range a.sidecar.EventChan() {
-			wailsruntime.EventsEmit(a.ctx, "sidecar:event", ev)
-		}
-	}()
-	// Auto-connect to Telegram.
-	go func() {
-		if err := a.sidecar.Connect(); err != nil {
-			backend.LogWarn("[Sidecar] connect failed: %v", err)
-			st := a.sidecar.Status()
-			st.Error = err.Error()
-			wailsruntime.EventsEmit(a.ctx, "sidecar:status", st)
-		} else {
-			backend.LogInfo("[Sidecar] connected to Telegram")
-		}
-	}()
-	return nil
+	return a.startSidecar()
 }
 
 // ConnectSidecar triggers Telegram authentication without performing a search.
 // The sidecar either connects silently (existing session) or emits auth_needed
 // and waits for a verification code via SubmitSidecarAuthCode.
 func (a *App) ConnectSidecar() error {
-	if a.sidecar == nil {
+	sc := a.currentSidecar()
+	if sc == nil {
 		return fmt.Errorf("sidecar not running")
 	}
-	return a.sidecar.Connect()
+	return sc.Connect()
 }
 
 // TestSidecar sends a ping to verify the sidecar is responsive.
 func (a *App) TestSidecar() (bool, error) {
-	if a.sidecar == nil {
+	sc := a.currentSidecar()
+	if sc == nil {
 		return false, fmt.Errorf("sidecar not running")
 	}
-	_, err := a.sidecar.Search("test", "test")
+	_, err := sc.Search("test", "test")
 	if err != nil {
 		return false, err
 	}
@@ -863,11 +905,18 @@ func (a *App) TestSidecar() (bool, error) {
 }
 
 // SetSidecarCredentials stores Telegram API credentials in the OS keychain.
+// If Deezer is enabled, the sidecar is restarted so the new credentials apply.
 func (a *App) SetSidecarCredentials(apiID, apiHash, phone string) error {
 	if apiID == "" || apiHash == "" || phone == "" {
 		return fmt.Errorf("all credential fields are required")
 	}
-	return backend.SetSidecarCredentials(apiID, apiHash, phone)
+	if err := backend.SetSidecarCredentials(apiID, apiHash, phone); err != nil {
+		return err
+	}
+	if settings, err := a.config.Load(); err == nil && settings.SidecarEnabled {
+		go func() { _ = a.startSidecar() }()
+	}
+	return nil
 }
 
 // GetSidecarCredentials returns whether credentials are configured.
@@ -878,11 +927,12 @@ func (a *App) HasSidecarCredentials() bool {
 
 // SidecarDownload enqueues a download via the Deezer sidecar.
 func (a *App) SidecarDownload(artist, title string) (map[string]interface{}, error) {
-	if a.sidecar == nil {
+	sc := a.currentSidecar()
+	if sc == nil {
 		return nil, fmt.Errorf("sidecar not running")
 	}
 	// 1. Search for the track.
-	search, err := a.sidecar.Search(artist, title)
+	search, err := sc.Search(artist, title)
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
 	}
@@ -892,7 +942,7 @@ func (a *App) SidecarDownload(artist, title string) (map[string]interface{}, err
 	}
 	// 2. Download the top result.
 	settings, _ := a.config.Load()
-	filePath, err := a.sidecar.Download(searchKey, 0, settings.DownloadsFolder, settings.ExportLrcFile)
+	filePath, err := sc.Download(searchKey, 0, settings.DownloadsFolder, settings.ExportLrcFile)
 	if err != nil {
 		return nil, fmt.Errorf("download: %w", err)
 	}
