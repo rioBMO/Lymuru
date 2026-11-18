@@ -54,7 +54,7 @@ const CheckFilesExistence = (outputDir: string, rootDir: string, tracks: CheckFi
 const CreateM3U8File = (playlistName: string, outputDir: string, filePaths: string[]): Promise<void> => (window as any)["go"]["main"]["App"]["CreateM3U8File"](playlistName, outputDir, filePaths);
 const CreateLogFile = (fileName: string, outputDir: string, logs: string[]): Promise<void> => (window as any)["go"]["main"]["App"]["CreateLogFile"](fileName, outputDir, logs);
 const GetTrackISRC = (spotifyId: string): Promise<string> => (window as any)["go"]["main"]["App"]["GetTrackISRC"](spotifyId);
-async function resolveTemplateISRC(settings: {
+export async function resolveTemplateISRC(settings: {
     folderTemplate?: string;
     filenameTemplate?: string;
     existingFileCheckMode?: string;

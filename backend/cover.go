@@ -76,13 +76,15 @@ func NewCoverClient() *CoverClient {
 	}
 }
 
-func buildCoverFilename(trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, playlistName, isrc, category, upc, artists string, includeTrackNumber bool, position, discNumber, totalTracks, totalDiscs int, useAlbumTrackNumber bool) string {
+// buildTrackSidecarFilename names a file that sits next to a track's audio
+// (cover .jpg, lyrics .lrc) using the same template as the audio file.
+func buildTrackSidecarFilename(ext, trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, playlistName, isrc, category, upc, artists string, includeTrackNumber bool, position, discNumber, totalTracks, totalDiscs int, useAlbumTrackNumber bool) string {
 	if strings.Contains(filenameFormat, "{") {
 		filenameFormat = ApplyExtraFilenameTokens(filenameFormat, artists, totalTracks, totalDiscs)
 		filenameFormat = ApplyFilenameContextTokens(filenameFormat, category, playlistName, "", upc)
 	}
 	base := buildFormattedFilenameBase(trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, playlistName, "", isrc, includeTrackNumber, position, discNumber, useAlbumTrackNumber)
-	return base + ".jpg"
+	return base + ext
 }
 
 func convertSmallToMedium(imageURL string) string {
@@ -224,7 +226,7 @@ func (c *CoverClient) DownloadCover(req CoverDownloadRequest) (*CoverDownloadRes
 	if filenameFormat == "" {
 		filenameFormat = "title-artist"
 	}
-	filename := buildCoverFilename(req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, filenameFormat, req.PlaylistName, req.ISRC, req.Category, req.UPC, req.Artists, req.TrackNumber, req.Position, req.DiscNumber, req.TotalTracks, req.TotalDiscs, req.UseAlbumTrackNumber)
+	filename := buildTrackSidecarFilename(".jpg", req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, filenameFormat, req.PlaylistName, req.ISRC, req.Category, req.UPC, req.Artists, req.TrackNumber, req.Position, req.DiscNumber, req.TotalTracks, req.TotalDiscs, req.UseAlbumTrackNumber)
 	filePath := filepath.Join(outputDir, filename)
 
 	if fileInfo, err := os.Stat(filePath); err == nil && fileInfo.Size() > 0 {
