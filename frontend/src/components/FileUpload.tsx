@@ -38,7 +38,7 @@ export function FileUpload({ id, accept, label, onFile, onClear, disabled }: Pro
         accept.includes(".flac") && accept.includes(".lrc")
           ? "Audio or lyrics files"
           : accept.includes(".flac")
-            ? "FLAC audio"
+            ? "Audio files"
             : "LRC lyrics";
       const path = await PickFile(desc, pattern);
       if (!path) return;

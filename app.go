@@ -545,8 +545,13 @@ func (a *App) SaveSettings(s map[string]interface{}) error {
 	return nil
 }
 
-// AddLyrics searches and embeds lyrics directly.
+// AddLyrics searches LRCLIB and embeds the lyrics. An empty artist or title
+// is read from the file's tags.
 func (a *App) AddLyrics(filePath, artist, title string) (string, error) {
+	artist, title, err := backend.LyricsQueryFor(filePath, artist, title)
+	if err != nil {
+		return "", err
+	}
 	lyrics, synced, err := backend.SearchLRCLIB(artist, title)
 	if err != nil {
 		return "", err
@@ -555,7 +560,7 @@ func (a *App) AddLyrics(filePath, artist, title string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	syncStr := "unsynced"
+	syncStr := "plain"
 	if synced {
 		syncStr = "synced"
 	}

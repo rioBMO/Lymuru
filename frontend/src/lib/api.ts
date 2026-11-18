@@ -27,7 +27,8 @@ import {
   DownloadCover,
   DownloadHeader,
   DownloadAvatar,
-  DownloadGalleryImage
+  DownloadGalleryImage,
+  DownloadLyrics
 } from "../../wailsjs/go/main/App";
 import { backend, main } from "../../wailsjs/go/models";
 import type {
@@ -35,6 +36,7 @@ import type {
   HeaderDownloadRequest,
   AvatarDownloadRequest,
   GalleryImageDownloadRequest,
+  LyricsDownloadRequest,
 } from "@/types/api";
 
 export async function fetchSpotifyMetadata(url: string, batch: boolean = true, delay: number = 1.0, timeout: number = 300.0) {
@@ -143,7 +145,6 @@ export interface TaskErrorPayload {
 }
 
 export async function fetchCurrentIPInfo() { return null; }
-export async function downloadLyrics() { return null; }
 
 export const downloadCover = (req: CoverDownloadRequest) =>
   DownloadCover(backend.CoverDownloadRequest.createFrom(req));
@@ -153,3 +154,5 @@ export const downloadAvatar = (req: AvatarDownloadRequest) =>
   DownloadAvatar(backend.AvatarDownloadRequest.createFrom(req));
 export const downloadGalleryImage = (req: GalleryImageDownloadRequest) =>
   DownloadGalleryImage(backend.GalleryImageDownloadRequest.createFrom(req));
+export const downloadLyrics = (req: LyricsDownloadRequest) =>
+  DownloadLyrics(backend.LyricsDownloadRequest.createFrom(req));

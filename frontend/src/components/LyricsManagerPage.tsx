@@ -1,7 +1,11 @@
 import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Upload, X, FileText, Trash2, AlertCircle, Music, Clock, Download, FolderOpen, Save, Undo2, Redo2, Pencil, Type } from "lucide-react";
+import { Upload, X, FileText, Trash2, AlertCircle, Music, Clock, Download, FolderOpen, Save, Undo2, Redo2, Pencil, Type, Search, FileInput, Languages } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AddLyricsTab } from "@/components/AddLyricsTab";
+import { EmbedLrcTab } from "@/components/EmbedLrcTab";
+import { RomanizeLrcTab } from "@/components/RomanizeLrcTab";
 import { Spinner } from "@/components/ui/spinner";
 import { ReadEmbeddedLyrics, SelectLyricsFiles, ExtractLyricsToLRC, SelectLyricsFolder, ScanLyricsFolder, SaveLyrics } from "../../wailsjs/go/main/App";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
@@ -21,6 +25,12 @@ interface LyricsFile {
 }
 const SUPPORTED_EXTENSIONS = [".lrc", ".txt", ".flac", ".mp3", ".m4a", ".aac", ".opus", ".ogg"];
 const EDITABLE_EXTENSIONS = [".lrc", ".txt", ".flac", ".mp3", ".m4a"];
+type LyricsTool = "add" | "embed" | "romanize";
+const LYRICS_TOOLS: Record<LyricsTool, { title: string; description: string }> = {
+    add: { title: "Add from LRCLIB", description: "Fetch lyrics from LRCLIB and embed them into an audio file. Artist and title come from the file's tags unless you override them." },
+    embed: { title: "Embed .lrc", description: "Embed a local .lrc file into an audio file." },
+    romanize: { title: "Romanize", description: "Romanize a Japanese, Chinese or Korean .lrc file." },
+};
 const LRC_TIMESTAMP_RE = /\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]/;
 function getExtension(path: string): string {
     const lower = path.toLowerCase();
@@ -39,6 +49,7 @@ function stripTimestamps(lyrics: string): string {
 }
 export function LyricsManagerPage() {
     const [files, setFiles] = useState<LyricsFile[]>([]);
+    const [activeTool, setActiveTool] = useState<LyricsTool | null>(null);
     const [selectedPath, setSelectedPath] = useState<string | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -333,7 +344,20 @@ export function LyricsManagerPage() {
     return (<div className={`space-y-6 ${isFullscreen ? "h-full flex flex-col" : ""}`}>
         <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Lyrics Manager</h1>
-            {files.length > 0 && (<div className="flex gap-2">
+            <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setActiveTool("add")}>
+                <Search className="h-4 w-4"/>
+                Add from LRCLIB
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setActiveTool("embed")}>
+                <FileInput className="h-4 w-4"/>
+                Embed .lrc
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setActiveTool("romanize")}>
+                <Languages className="h-4 w-4"/>
+                Romanize
+            </Button>
+            {files.length > 0 && (<>
                 <Button variant="outline" size="sm" onClick={handleSelectFiles}>
                     <Upload className="h-4 w-4"/>
                     Add Files
@@ -350,8 +374,23 @@ export function LyricsManagerPage() {
                     <Trash2 className="h-4 w-4"/>
                     Clear All
                 </Button>
-            </div>)}
+            </>)}
+            </div>
         </div>
+
+        <Dialog open={activeTool !== null} onOpenChange={(open) => { if (!open) setActiveTool(null); }}>
+            <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+                {activeTool && (<>
+                    <DialogHeader>
+                        <DialogTitle>{LYRICS_TOOLS[activeTool].title}</DialogTitle>
+                        <DialogDescription>{LYRICS_TOOLS[activeTool].description}</DialogDescription>
+                    </DialogHeader>
+                    {activeTool === "add" && <AddLyricsTab />}
+                    {activeTool === "embed" && <EmbedLrcTab />}
+                    {activeTool === "romanize" && <RomanizeLrcTab />}
+                </>)}
+            </DialogContent>
+        </Dialog>
 
         <div className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg transition-all ${isFullscreen ? "flex-1 min-h-100" : "min-h-100"} ${isDragging
             ? "border-primary bg-primary/10"

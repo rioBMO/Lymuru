@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { RomanizeLrc, OpenFolder, type RomanizeResult } from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import { RomanizeLrc, OpenFolder } from "@/lib/api";
+import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { FileUpload } from "@/components/FileUpload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,6 @@ export function RomanizeLrcTab() {
   const [file, setFile] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ text: string | null; url: string | null; message: string } | null>(null);
-  const { toast } = useToast();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -17,11 +16,11 @@ export function RomanizeLrcTab() {
     setLoading(true);
     setResult(null);
     try {
-      const data = (await RomanizeLrc(file)) as RomanizeResult;
+      const data = await RomanizeLrc(file);
       setResult({ text: data.romanized, url: data.download_url, message: data.message });
-      if (!data.romanized) toast(data.message);
+      if (!data.romanized) toast.info(data.message);
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Romanization failed", "error");
+      toast.error(err instanceof Error ? err.message : "Romanization failed");
     } finally {
       setLoading(false);
     }

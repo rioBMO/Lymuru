@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -56,6 +58,7 @@ type LyricsDownloadRequest struct {
 	DiscNumber          int    `json:"disc_number"`
 	TotalTracks         int    `json:"total_tracks,omitempty"`
 	TotalDiscs          int    `json:"total_discs,omitempty"`
+	DurationMs          int    `json:"duration_ms,omitempty"`
 }
 
 type LyricsDownloadResponse struct {
@@ -64,21 +67,27 @@ type LyricsDownloadResponse struct {
 	File          string `json:"file,omitempty"`
 	Error         string `json:"error,omitempty"`
 	AlreadyExists bool   `json:"already_exists,omitempty"`
+	// NotFound is set when no source had lyrics for the track, so the UI can
+	// show it as skipped rather than failed.
+	NotFound bool `json:"not_found,omitempty"`
 }
 
 type LyricsClient struct {
 	httpClient *http.Client
+	baseURL    string // LRCLIB root; tests point it at an httptest server
 }
 
 func NewLyricsClient() *LyricsClient {
 	return &LyricsClient{
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		baseURL:    "https://lrclib.net",
 	}
 }
 
 func (c *LyricsClient) FetchLyricsWithMetadata(trackName, artistName, albumName string, duration int) (*LyricsResponse, error) {
 
-	apiURL := fmt.Sprintf("https://lrclib.net/api/get?artist_name=%s&track_name=%s",
+	apiURL := fmt.Sprintf("%s/api/get?artist_name=%s&track_name=%s",
+		c.baseURL,
 		url.QueryEscape(artistName),
 		url.QueryEscape(trackName))
 
@@ -178,7 +187,8 @@ func lrcTimestampToMs(timestamp string) int64 {
 
 func (c *LyricsClient) FetchLyricsFromLRCLibSearch(trackName, artistName string) (*LyricsResponse, error) {
 
-	apiURL := fmt.Sprintf("https://lrclib.net/api/search?artist_name=%s&track_name=%s",
+	apiURL := fmt.Sprintf("%s/api/search?artist_name=%s&track_name=%s",
+		c.baseURL,
 		url.QueryEscape(artistName),
 		url.QueryEscape(trackName))
 
@@ -355,6 +365,88 @@ func (c *LyricsClient) ConvertToLRC(lyrics *LyricsResponse, trackName, artistNam
 	}
 
 	return sb.String()
+}
+
+// DownloadLyrics saves a track's lyrics as an .lrc file next to its audio
+// file, using the same base name. A track with no lyrics in any source gives a
+// NotFound response, a nil error and no file.
+func (c *LyricsClient) DownloadLyrics(req LyricsDownloadRequest) (*LyricsDownloadResponse, error) {
+	outputDir := req.OutputDir
+	if outputDir == "" {
+		outputDir = GetDefaultMusicPath()
+	} else {
+		outputDir = NormalizePath(outputDir)
+	}
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return &LyricsDownloadResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to create output directory: %v", err),
+		}, err
+	}
+
+	filenameFormat := req.FilenameFormat
+	if filenameFormat == "" {
+		filenameFormat = "title-artist"
+	}
+	filename := buildTrackSidecarFilename(".lrc", req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, filenameFormat, req.PlaylistName, req.ISRC, req.Category, req.UPC, req.Artists, req.TrackNumber, req.Position, req.DiscNumber, req.TotalTracks, req.TotalDiscs, req.UseAlbumTrackNumber)
+	filePath := filepath.Join(outputDir, filename)
+
+	if fileInfo, err := os.Stat(filePath); err == nil && fileInfo.Size() > 0 {
+		return &LyricsDownloadResponse{
+			Success:       true,
+			Message:       "Lyrics file already exists",
+			File:          filePath,
+			AlreadyExists: true,
+		}, nil
+	}
+
+	lyrics, _, err := c.FetchLyricsAllSources(req.SpotifyID, req.TrackName, req.ArtistName, req.AlbumName, req.DurationMs/1000)
+	if err != nil {
+		return &LyricsDownloadResponse{
+			Success:  false,
+			NotFound: true,
+			Error:    "No lyrics found",
+		}, nil
+	}
+
+	content := c.ConvertToLRC(lyrics, req.TrackName, req.ArtistName)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return &LyricsDownloadResponse{
+			Success: false,
+			Error:   fmt.Sprintf("failed to write lyrics file: %v", err),
+		}, err
+	}
+
+	return &LyricsDownloadResponse{
+		Success: true,
+		Message: "Lyrics downloaded successfully",
+		File:    filePath,
+	}, nil
+}
+
+// LyricsQueryFor returns the artist and title to search for. Non-empty
+// overrides win; empty ones are filled from the file's tags.
+func LyricsQueryFor(filePath, artist, title string) (string, string, error) {
+	artist = strings.TrimSpace(artist)
+	title = strings.TrimSpace(title)
+	if artist != "" && title != "" {
+		return artist, title, nil
+	}
+
+	if meta, err := ReadAudioMetadata(filePath); err == nil {
+		if artist == "" {
+			artist = strings.TrimSpace(meta.Artist)
+		}
+		if title == "" {
+			title = strings.TrimSpace(meta.Title)
+		}
+	}
+
+	if artist == "" || title == "" {
+		return "", "", fmt.Errorf("couldn't read artist/title from the file's tags; enter them manually")
+	}
+	return artist, title, nil
 }
 
 func msToLRCTimestamp(msStr string) string {

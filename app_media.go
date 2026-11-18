@@ -2,7 +2,7 @@ package main
 
 import "github.com/lymuru/lymuru/backend"
 
-// Cover and artist image downloads. The backend returns a response that
+// Cover, artist image and lyrics downloads. The backend returns a response that
 // describes any failure, so when one exists it is returned with a nil error:
 // the frontend reads response.success / response.error instead of catching a
 // rejected promise.
@@ -29,6 +29,12 @@ func (a *App) DownloadAvatar(req backend.AvatarDownloadRequest) (*backend.Avatar
 func (a *App) DownloadGalleryImage(req backend.GalleryImageDownloadRequest) (*backend.GalleryImageDownloadResponse, error) {
 	resp, err := backend.NewCoverClient().DownloadGalleryImage(req)
 	return resolveMediaResponse("Gallery", resp, err)
+}
+
+// DownloadLyrics saves a track's lyrics as an .lrc file next to its audio file.
+func (a *App) DownloadLyrics(req backend.LyricsDownloadRequest) (*backend.LyricsDownloadResponse, error) {
+	resp, err := backend.NewLyricsClient().DownloadLyrics(req)
+	return resolveMediaResponse("Lyrics", resp, err)
 }
 
 func resolveMediaResponse[T any](kind string, resp *T, err error) (*T, error) {
