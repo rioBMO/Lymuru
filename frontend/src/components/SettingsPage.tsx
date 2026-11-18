@@ -454,15 +454,6 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 pt-2">
-                <Switch id="sfx-enabled" checked={tempSettings.sfxEnabled} onCheckedChange={(checked) => setTempSettings((prev) => ({
-                ...prev,
-                sfxEnabled: checked,
-            }))}/>
-                <Label htmlFor="sfx-enabled" className="cursor-pointer text-sm font-normal">
-                  Sound Effects
-                </Label>
-              </div>
             </div>
 
             <div className="space-y-4 md:pl-8">

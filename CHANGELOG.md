@@ -2,6 +2,35 @@
 
 All notable changes to Lymuru will be documented in this file.
 
+## [1.2.0] - 2026-11-19
+
+This release makes the buttons that did nothing work, or removes them.
+
+### Changed
+- **Playlist folders**: with **Create playlist folder** on (the default), each playlist now gets its own folder named after the playlist, or `<playlist> - <owner>` when **Playlist Owner Folder Name** is on. Before, every playlist went into one folder called `playlist`. New downloads go to the new folders; files you already downloaded aren't moved.
+- **Open folder** shows an error if the folder doesn't exist, instead of quietly opening a different one.
+
+### Fixed
+- **Cover and artist image downloads**: the per-track cover button, **Download All Covers**, and the album, playlist, header, avatar and gallery image buttons failed on every click. They now save the image next to the track's audio, or in the artist's folder, with progress, a Stop button and a summary.
+- **Lyrics downloads**: the per-track lyrics button and **Download All Lyrics** now save an `.lrc` file next to the track's audio. Synced lyrics are used when available, then plain lyrics. Tracks with no lyrics are marked as skipped.
+- **Lyrics Manager**: **Add from LRCLIB**, **Embed .lrc** and **Romanize** can be opened from Lyrics Manager again. They accept FLAC, MP3 and M4A, and show a message for each result. If you leave artist and title empty, **Add from LRCLIB** uses the file's own tags.
+- **Open folder** buttons did nothing. They now open the folder in Explorer. **Open in folder** in Romanize opens the folder that contains the `.lrc` file.
+- Clicking an artist name could crash. Each artist in a multi-artist track is now its own link, and an artist that can't be found shows "Artist not found".
+- **Play Preview** did nothing, both in History and in track lists and on track pages. It plays and stops again, and shows a message when a track has no preview.
+- **Deezer** failed for every track with a non-Latin title, such as Japanese, with a `UnicodeEncodeError`.
+- **Settings → Accent** showed nothing selected, and changing **Mode** had no effect until you picked an accent. Cyan is now selected by default, including for existing settings.
+- The title-bar **Website** item now opens the Lymuru GitHub page.
+
+### Removed
+- The title-bar **Network** section (IP address, country and "Blocked by Spotify"). It never worked, and the app no longer looks up your IP address.
+- The **Check availability** buttons, which never worked.
+- The **Sound Effects** setting, which had no effect.
+
+### Known issues
+- **Tidal, Qobuz and Amazon downloads fail** with "no such host". The community servers they use have gone offline; this affects 1.1.x too. Deezer (optional, needs Python and Telegram) still works. A fix is planned for a later release.
+- **Stop** takes effect only after the track that is downloading finishes.
+- Drag and drop in Lyrics Manager doesn't work yet; use the buttons to add files.
+
 ## [1.1.1] - 2026-11-18
 
 ### Fixed

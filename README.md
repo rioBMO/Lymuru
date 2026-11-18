@@ -35,7 +35,7 @@ Lymuru is a native desktop application for searching and downloading high-qualit
 
 ## Quick Start
 
-1. Download the latest release from the [Releases](https://github.com/lymuru/lymuru/releases) page.
+1. Download the latest release from the [Releases](https://github.com/rioBMO/Lymuru/releases) page.
 2. Run `Lymuru.exe`.
 3. The app automatically downloads and configures FFmpeg on first launch.
 4. Start searching and downloading!
@@ -48,7 +48,7 @@ If you want Deezer as an additional download source:
 2. Enable the sidecar and set the path to your Python 3.11+ executable.
 3. Enter your Telegram API ID, API Hash, and phone number (**Settings → Deezer → Set Credentials**).
 4. When prompted, enter the Telegram verification code in the auth dialog.
-5. Your session is saved to `data/deezload_session.session` and reused on subsequent launches.
+5. Your session is saved to `%APPDATA%\Lymuru\deezload_session.session` and reused on subsequent launches.
 
 ---
 
@@ -105,13 +105,26 @@ Lymuru/
 │       ├── components/      # UI components (pages, dialogs, primitives)
 │       ├── hooks/           # React hooks
 │       └── lib/             # Utilities and settings
-├── sidecar/
-│   └── deezload.py          # Python sidecar (Deezer via Telegram bot)
-└── data/                    # Runtime data (created at first launch)
-    ├── lymuru.db            # SQLite database (history, settings)
-    ├── logs/lymuru.log      # Application logs
-    └── deezload_session.session  # Telegram session (if sidecar is used)
+└── sidecar/
+    └── deezload.py          # Python sidecar (Deezer via Telegram bot)
 ```
+
+Runtime data is stored per user in `%APPDATA%\Lymuru` (created at first launch):
+
+```
+%APPDATA%\Lymuru\
+├── lymuru.db                # SQLite database (history, settings)
+├── logs\lymuru.log          # Application logs
+└── deezload_session.session # Telegram session (if the sidecar is used)
+```
+
+---
+
+## Acknowledgements
+
+Lymuru's user interface and parts of its backend come from
+[SpotiFLAC](https://github.com/spotbye/Flacora), now called Flacora. Many
+thanks to its authors.
 
 ---
 

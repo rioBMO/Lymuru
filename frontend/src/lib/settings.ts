@@ -1,5 +1,6 @@
 import { GetDefaults, LoadFonts as LoadFontsFromBackend, LoadSettings, SaveFonts as SaveFontsToBackend, SaveSettings as SaveToBackend, } from "../../wailsjs/go/main/App";
 import { getFirstArtist } from "./utils";
+import { themes } from "./themes";
 export type BuiltInFontFamily = "google-sans" | "inter" | "poppins" | "roboto" | "dm-sans" | "plus-jakarta-sans" | "manrope" | "space-grotesk" | "noto-sans" | "nunito-sans" | "figtree" | "raleway" | "public-sans" | "outfit" | "jetbrains-mono" | "geist-sans" | "bricolage-grotesque";
 export type CustomFontFamily = `custom-${string}`;
 export type FontFamily = BuiltInFontFamily | CustomFontFamily;
@@ -196,7 +197,7 @@ export const DEFAULT_SETTINGS: Settings = {
     customQobuzApi: "",
     linkResolver: "songlink",
     allowResolverFallback: true,
-    theme: "yellow",
+    theme: themes[0].name,
     themeMode: "auto",
     fontFamily: "google-sans",
     customFonts: [],
@@ -600,6 +601,11 @@ function normalizeSettingsPayload(settings: SettingsPayload): SettingsPayload {
     if ("darkMode" in normalized && !("themeMode" in normalized)) {
         normalized.themeMode = normalized.darkMode ? "dark" : "light";
         delete normalized.darkMode;
+    }
+    // An accent that doesn't exist (e.g. SpotiFLAC's old default "yellow") leaves
+    // the Accent select empty and makes applyTheme force light mode.
+    if ("theme" in normalized && !themes.some((t) => t.name === normalized.theme)) {
+        normalized.theme = themes[0].name;
     }
     // Backend snake_case → frontend camelCase mappings.
     if ("sidecar_enabled" in normalized && !("sidecarEnabled" in normalized)) {

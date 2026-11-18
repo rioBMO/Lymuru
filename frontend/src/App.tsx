@@ -415,7 +415,8 @@ function App() {
         else if ("artist_info" in metadata.metadata) {
             const { artist_info } = metadata.metadata;
             historyItem = {
-                url: spotifyUrl,
+                // Not spotifyUrl: after an artist-name click it can still hold the previous page's URL.
+                url: artist_info.external_urls || spotifyUrl,
                 type: "artist",
                 name: artist_info.name,
                 artist: `${artist_info.total_albums.toLocaleString()} albums`,

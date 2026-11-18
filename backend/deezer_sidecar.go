@@ -182,6 +182,9 @@ func (s *DeezerSidecar) Start() error {
 		"TELEGRAM_API_HASH="+s.apiHash,
 		"TELEGRAM_PHONE="+s.phone,
 		"LYMURU_DOWNLOAD_DIR="+filepath.Join(s.dataDir, "downloads"),
+		// Pipes default to the Windows code page (cp1252), which can't encode
+		// non-Latin titles; the JSON-RPC stream must be UTF-8.
+		"PYTHONIOENCODING=utf-8",
 	)
 
 	// Stdin pipe for sending commands.
