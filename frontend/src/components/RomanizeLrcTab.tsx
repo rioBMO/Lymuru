@@ -55,7 +55,13 @@ export function RomanizeLrcTab() {
               {result.text}
             </pre>
             {result.url && (
-              <Button onClick={() => OpenFolder(result.url!)} className="mt-3" variant="default">
+              <Button onClick={async () => {
+                try {
+                  await OpenFolder(result.url!);
+                } catch (error) {
+                  toast.error(`Error opening folder: ${error}`);
+                }
+              }} className="mt-3" variant="default">
                 Open in folder
               </Button>
             )}

@@ -43,6 +43,7 @@ func NewApp(dataDir string) *App {
 
 // SetStorage wires the SQLite database into the App. Must be called before
 // the Wails startup hook.
+// Kept although the UI never calls it: main.go does.
 func (a *App) SetStorage(db *storage.DB) {
 	a.storage = db
 	a.history = backend.NewHistory(db)
@@ -361,15 +362,6 @@ func (a *App) GetVersion() string {
 	return backend.AppVersion()
 }
 
-// GetTask returns a snapshot of a task by id.
-func (a *App) GetTask(taskID string) (backend.Task, error) {
-	t, ok := a.tasks.Get(taskID)
-	if !ok {
-		return backend.Task{}, fmt.Errorf("task not found: %s", taskID)
-	}
-	return t, nil
-}
-
 // GetActiveTasks returns the list of active tasks for the queue dialog.
 func (a *App) GetActiveTasks() []backend.Task {
 	return a.tasks.List()
@@ -644,26 +636,11 @@ func (a *App) GetDownloadsPath() string {
 
 // OpenFolder opens a path in the OS file explorer.
 func (a *App) OpenFolder(path string) error {
-	if path == "" {
-		return errors.New("path is required")
-	}
-	wd, _ := os.Getwd()
-	abs, err := filepath.Abs(path)
+	dir, err := backend.ResolveOpenTarget(path)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(abs); err != nil {
-		// Fall back to the default downloads folder.
-		defaults := backend.DefaultSettings()
-		abs = defaults.DownloadsFolder
-		_ = os.MkdirAll(abs, 0o755)
-	}
-	if a.ctx != nil {
-		wailsruntime.BrowserOpenURL(a.ctx, "file://"+filepath.ToSlash(abs))
-		return nil
-	}
-	_ = wd
-	return nil
+	return backend.OpenFolderInExplorer(dir)
 }
 
 // PickFile opens a native file dialog and returns the selected path.
@@ -888,6 +865,7 @@ func (a *App) RestartSidecar() error {
 // ConnectSidecar triggers Telegram authentication without performing a search.
 // The sidecar either connects silently (existing session) or emits auth_needed
 // and waits for a verification code via SubmitSidecarAuthCode.
+// Kept although the UI doesn't call it yet: part of the optional Deezer sidecar API.
 func (a *App) ConnectSidecar() error {
 	sc := a.currentSidecar()
 	if sc == nil {
@@ -897,6 +875,7 @@ func (a *App) ConnectSidecar() error {
 }
 
 // TestSidecar sends a ping to verify the sidecar is responsive.
+// Kept although the UI doesn't call it yet: part of the optional Deezer sidecar API.
 func (a *App) TestSidecar() (bool, error) {
 	sc := a.currentSidecar()
 	if sc == nil {
@@ -931,6 +910,7 @@ func (a *App) HasSidecarCredentials() bool {
 }
 
 // SidecarDownload enqueues a download via the Deezer sidecar.
+// Kept although the UI doesn't call it yet: part of the optional Deezer sidecar API.
 func (a *App) SidecarDownload(artist, title string) (map[string]interface{}, error) {
 	sc := a.currentSidecar()
 	if sc == nil {

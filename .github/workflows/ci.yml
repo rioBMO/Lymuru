@@ -39,5 +39,13 @@ jobs:
       - name: Wails build
         run: wails build
 
+      - name: Type check
+        run: bun run typecheck
+        working-directory: frontend
+
+      - name: Frontend tests
+        run: bun test
+        working-directory: frontend
+
       - name: Go build
         run: go build ./...

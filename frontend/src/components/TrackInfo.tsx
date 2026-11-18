@@ -1,12 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, FolderOpen, CheckCircle, XCircle, FileText, FileCheck, ImageDown, Play, Pause, Globe } from "lucide-react";
+import { Download, FolderOpen, CheckCircle, XCircle, FileText, FileCheck, ImageDown, Play, Pause } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
 import type { TrackMetadata, TrackAvailability } from "@/types/api";
 import { usePreview } from "@/hooks/usePreview";
 import { buildClickableArtists, getClickableArtistKey } from "@/lib/artist-links";
-import { AvailabilityLinks, hasAvailabilityLinks } from "./AvailabilityLinks";
 interface TrackInfoProps {
     track: TrackMetadata & {
         album_name: string;
@@ -160,16 +159,6 @@ export function TrackInfo({ track, isDownloading, downloadingTrack, isDownloaded
               </TooltipTrigger>
               <TooltipContent>
                 <p>Download Separate Cover</p>
-              </TooltipContent>
-            </Tooltip>)}
-            {track.spotify_id && onCheckAvailability && (<Tooltip>
-              <TooltipTrigger asChild>
-                <Button onClick={() => onCheckAvailability(track.spotify_id!)} variant="outline" size="icon" disabled={checkingAvailability}>
-                  {checkingAvailability ? (<Spinner />) : availability ? (hasAvailabilityLinks(availability) ? (<CheckCircle className="h-4 w-4 text-green-500"/>) : (<XCircle className="h-4 w-4 text-red-500"/>)) : (<Globe className="h-4 w-4"/>)}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="pointer-events-auto">
-                <AvailabilityLinks availability={availability}/>
               </TooltipContent>
             </Tooltip>)}
             {isDownloaded && (<Tooltip>

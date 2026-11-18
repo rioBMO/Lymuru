@@ -30,14 +30,6 @@ func LoadSidecarCredential(key string) (string, error) {
 	return v, nil
 }
 
-// DeleteSidecarCredential removes a value from the OS keychain.
-func DeleteSidecarCredential(key string) error {
-	if err := keyring.Delete(keyringService, key); err != nil {
-		return fmt.Errorf("keychain delete %s: %w", key, err)
-	}
-	return nil
-}
-
 // SetSidecarCredentials stores all Telegram credentials at once.
 func SetSidecarCredentials(apiID, apiHash, phone string) error {
 	if err := SaveSidecarCredential(keyringAPIID, apiID); err != nil {

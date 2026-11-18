@@ -54,14 +54,6 @@ var (
 	musicBrainzLastCheckedOnline bool
 )
 
-func SetMusicBrainzStatusCheckResult(online bool) {
-	musicBrainzStatusMu.Lock()
-	defer musicBrainzStatusMu.Unlock()
-
-	musicBrainzLastCheckedAt = time.Now()
-	musicBrainzLastCheckedOnline = online
-}
-
 func ShouldSkipMusicBrainzMetadataFetch() bool {
 	musicBrainzStatusMu.RLock()
 	defer musicBrainzStatusMu.RUnlock()

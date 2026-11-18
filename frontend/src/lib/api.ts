@@ -144,8 +144,6 @@ export interface TaskErrorPayload {
   message: string;
 }
 
-export async function fetchCurrentIPInfo() { return null; }
-
 export const downloadCover = (req: CoverDownloadRequest) =>
   DownloadCover(backend.CoverDownloadRequest.createFrom(req));
 export const downloadHeader = (req: HeaderDownloadRequest) =>

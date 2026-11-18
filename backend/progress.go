@@ -234,12 +234,6 @@ func NewProgressWriter(writer io.Writer) *ProgressWriter {
 	}
 }
 
-func NewProgressWriterWithID(writer io.Writer, itemID string) *ProgressWriter {
-	pw := NewProgressWriter(writer)
-	pw.itemID = itemID
-	return pw
-}
-
 func getCurrentTimeMillis() int64 {
 	return time.Now().UnixMilli()
 }
@@ -342,12 +336,6 @@ func UpdateItemProgress(id string, progress, speed float64) {
 			break
 		}
 	}
-}
-
-func GetCurrentItemID() string {
-	currentItemLock.RLock()
-	defer currentItemLock.RUnlock()
-	return currentItemID
 }
 
 func CompleteDownloadItem(id, filePath string, finalSize float64) {
@@ -483,19 +471,6 @@ func ClearAllDownloads() {
 
 	SetDownloadProgress(0)
 	SetDownloadSpeed(0)
-}
-
-func CancelAllQueuedItems() {
-	downloadQueueLock.Lock()
-	defer downloadQueueLock.Unlock()
-
-	for i := range downloadQueue {
-		if downloadQueue[i].Status == StatusQueued {
-			downloadQueue[i].Status = StatusSkipped
-			downloadQueue[i].EndTime = time.Now().Unix()
-			downloadQueue[i].ErrorMessage = "Cancelled"
-		}
-	}
 }
 
 func CancelQueuedAndDownloadingItems() {

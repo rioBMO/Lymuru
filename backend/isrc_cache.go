@@ -58,16 +58,6 @@ func InitISRCCacheDB() error {
 	return nil
 }
 
-func CloseISRCCacheDB() {
-	isrcCacheDBMu.Lock()
-	defer isrcCacheDBMu.Unlock()
-
-	if isrcCacheDB != nil {
-		_ = isrcCacheDB.Close()
-		isrcCacheDB = nil
-	}
-}
-
 func GetCachedISRC(trackID string) (string, error) {
 	normalizedTrackID := strings.TrimSpace(trackID)
 	if normalizedTrackID == "" {
