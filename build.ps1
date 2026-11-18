@@ -8,10 +8,17 @@ param(
     [switch]$SkipBindings
 )
 
-Write-Host "Checking if Wails CLI is installed..."
-if (!(Get-Command wails -ErrorAction SilentlyContinue)) {
-    Write-Host "Wails CLI not found. Installing..."
-    go install github.com/wailsapp/wails/v2/cmd/wails@latest
+# Keep the CLI on the same Wails version as go.mod (a mismatch triggers warnings
+# and can generate incompatible bindings/runtime).
+$wailsVersion = (go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2).Trim()
+Write-Host "Checking Wails CLI (go.mod uses $wailsVersion)..."
+$cliVersion = $null
+if (Get-Command wails -ErrorAction SilentlyContinue) {
+    $cliVersion = (wails version 2>$null | Select-String -Pattern 'v\d+\.\d+\.\d+' | Select-Object -First 1).Matches.Value
+}
+if ($cliVersion -ne $wailsVersion) {
+    Write-Host "Installing Wails CLI $wailsVersion (found: $(if ($cliVersion) { $cliVersion } else { 'none' }))..."
+    go install "github.com/wailsapp/wails/v2/cmd/wails@$wailsVersion"
 }
 
 # winget/the NSIS installer do not add makensis to PATH; look in the default locations.

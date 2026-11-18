@@ -163,7 +163,7 @@ func (s *DeezerSidecar) Start() error {
 	}
 
 	// Resolve the sidecar script path (absolute, based on executable or cwd).
-	sidecarPath, pathErr := resolveSidecarScriptPath()
+	sidecarPath, pathErr := resolveSidecarScriptPath(s.dataDir)
 	if pathErr != nil {
 		s.startErr = pathErr.Error()
 		return fmt.Errorf("resolve sidecar script: %w", pathErr)
@@ -327,6 +327,8 @@ func (s *DeezerSidecar) Start() error {
 		stderrLower := strings.ToLower(stderrText)
 		if strings.Contains(stderrLower, "microsoft store") || strings.Contains(stderrLower, "python was not found") {
 			s.startErr = "Python is not installed or only the Microsoft Store alias is available. Install Python from python.org and restart, or set the Python Path in Settings → Deezer."
+		} else if strings.Contains(stderrLower, "modulenotfounderror") || strings.Contains(stderrLower, "no module named") {
+			s.startErr = missingPackagesHint(pyPath, sidecarPath)
 		} else if stderrText != "" {
 			lastLine := stderrText
 			if idx := strings.LastIndex(lastLine, "\n"); idx >= 0 {
@@ -630,9 +632,11 @@ func isRealPython(exe string) bool {
 }
 
 // resolveSidecarScriptPath returns the absolute path to sidecar/deezload.py.
-// It searches relative to the executable first (for wails build), then falls
-// back to the current working directory (for wails dev / go run).
-func resolveSidecarScriptPath() (string, error) {
+// It searches relative to the executable first (for wails build), then the
+// current working directory (for wails dev / go run). If no copy exists on
+// disk (installed or portable builds), the copy bundled into the binary is
+// extracted into <dataDir>/sidecar.
+func resolveSidecarScriptPath(dataDir string) (string, error) {
 	candidates := []string{}
 
 	// Candidate 1: sidecar alongside the executable (release zip layout).
@@ -661,5 +665,17 @@ func resolveSidecarScriptPath() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("sidecar script not found; checked: %v", candidates)
+	script, err := extractEmbeddedSidecar(dataDir)
+	if err != nil {
+		return "", fmt.Errorf("sidecar script not found (checked %v): %w", candidates, err)
+	}
+	LogDebug("[Sidecar] using bundled script at %s", script)
+	return script, nil
+}
+
+// missingPackagesHint builds the error shown when the sidecar's Python
+// dependencies are not installed.
+func missingPackagesHint(pythonExe, scriptPath string) string {
+	req := filepath.Join(filepath.Dir(scriptPath), "requirements.txt")
+	return fmt.Sprintf("Python packages for Deezer are missing. Install them with: \"%s\" -m pip install -r \"%s\"", pythonExe, req)
 }

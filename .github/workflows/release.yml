@@ -1,9 +1,19 @@
 name: Release
 
+# Builds the Windows EXE, NSIS installer and ZIP with the same script used
+# locally (build.ps1).
+#   - Push a tag like v1.2.3 → build + publish a GitHub Release.
+#   - Run manually (Actions → Release → Run workflow) → build artifacts only.
+# Day-to-day push/PR checks live in ci.yml.
+
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   release:
@@ -16,7 +26,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -24,44 +34,49 @@ jobs:
           bun-version: latest
 
       - name: Install NSIS
-        run: choco install nsis -y
-
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
-
-      - name: Install frontend dependencies
-        run: bun install
-        working-directory: frontend
+        run: choco install nsis -y --no-progress
 
       - name: Set version from tag
+        if: github.ref_type == 'tag'
         run: |
-          $tag = "${{ github.ref_name }}"
-          $version = $tag -replace '^v',''
-          $json = Get-Content wails.json | ConvertFrom-Json
+          $version = "${{ github.ref_name }}" -replace '^v',''
+          $json = Get-Content wails.json -Raw | ConvertFrom-Json
           $json.info.productVersion = $version
-          $json | ConvertTo-Json -Depth 10 | Set-Content wails.json
+          $json | ConvertTo-Json -Depth 10 | Set-Content wails.json -Encoding utf8NoBOM
           Write-Output "Version set to $version"
 
-      - name: Wails build (with NSIS installer)
-        run: wails build -nsis
+      - name: Go test
+        run: go test ./backend/...
+
+      # build.ps1 installs the Wails CLI at the go.mod version, finds NSIS,
+      # and produces Lymuru-Portable.exe, Lymuru-Installer.exe, Lymuru-Windows.zip.
+      - name: Build (EXE, NSIS installer, ZIP)
+        run: ./build.ps1
         env:
           CGO_ENABLED: 1
 
-      - name: Rename binaries with version
+      - name: Add version to file names
+        id: names
         run: |
-          $tag = "${{ github.ref_name }}"
-          Rename-Item "build\bin\Lymuru.exe" "Lymuru-$tag.exe"
-          if (Test-Path "build\bin\Lymuru-amd64-installer.exe") {
-            Rename-Item "build\bin\Lymuru-amd64-installer.exe" "Lymuru-$tag-Installer.exe"
+          $suffix = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "${{ github.sha }}".Substring(0, 7) }
+          foreach ($kind in "Portable.exe", "Installer.exe", "Windows.zip") {
+            $src = "build/bin/Lymuru-$kind"
+            if (!(Test-Path $src)) { throw "Missing build output: $src" }
+            Rename-Item $src "Lymuru-$suffix-$kind"
           }
+          "suffix=$suffix" >> $env:GITHUB_OUTPUT
 
-      - name: Create GitHub Release
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lymuru-Windows-${{ steps.names.outputs.suffix }}
+          path: build/bin/Lymuru-${{ steps.names.outputs.suffix }}-*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          files: |
-            build/bin/Lymuru-v*.exe
-            build/bin/Lymuru-v*-Installer.exe
-          draft: false
-          prerelease: false
+          files: build/bin/Lymuru-${{ github.ref_name }}-*
           generate_release_notes: true

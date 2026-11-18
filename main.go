@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 
@@ -20,6 +21,12 @@ var assets embed.FS
 
 //go:embed wails.json
 var wailsJSON []byte
+
+// The Deezer sidecar ships inside the binary so installed/portable builds can
+// run it; it is extracted to the data dir on demand.
+//
+//go:embed sidecar/deezload.py sidecar/requirements.txt
+var sidecarFiles embed.FS
 
 func main() {
 	// Read the product version from wails.json and seed the backend.
@@ -45,6 +52,10 @@ func main() {
 		backend.LogWarn("[Startup] legacy data migration failed: %v", err)
 	} else if src != "" {
 		backend.LogInfo("[Startup] migrated data from %s to %s", src, dataDir)
+	}
+
+	if sub, err := fs.Sub(sidecarFiles, "sidecar"); err == nil {
+		backend.SetEmbeddedSidecar(sub)
 	}
 
 	app := NewApp(dataDir)
