@@ -1,6 +1,9 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+// wails.json is the single source of the app version: the Go side embeds it,
+// and the release workflow rewrites productVersion from the git tag before building.
+import wailsConfig from "../wails.json";
 
 /**
  * Vite config for the Lymuru Wails frontend.
@@ -16,8 +19,6 @@ export default defineConfig({
     alias: { "@": "/src" },
   },
   define: {
-    __APP_VERSION__: JSON.stringify(
-      process.env.npm_package_version || "1.0.0",
-    ),
+    __APP_VERSION__: JSON.stringify(wailsConfig.info.productVersion),
   },
 });
