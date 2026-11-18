@@ -1,10 +1,15 @@
 package backend
 
 import (
+	"os"
 	"testing"
 )
 
-func TestSearchLRCLIB(t *testing.T) {
+// TestLiveSearchLRCLIB calls the real LRCLIB API, so it only runs on request.
+func TestLiveSearchLRCLIB(t *testing.T) {
+	if os.Getenv("LYMURU_LIVE_TESTS") == "" {
+		t.Skip("set LYMURU_LIVE_TESTS=1 to run tests against live services")
+	}
 	lyrics, synced, err := SearchLRCLIB("Rick Astley", "Never Gonna Give You Up")
 	if err != nil {
 		t.Fatalf("SearchLRCLIB failed: %v", err)
