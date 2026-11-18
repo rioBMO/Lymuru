@@ -23,9 +23,19 @@ import {
   GetSpotifyMetadata, DownloadTrack,
   SearchSpotifyByType,
   GetRecentFetches,
-  SaveRecentFetches
+  SaveRecentFetches,
+  DownloadCover,
+  DownloadHeader,
+  DownloadAvatar,
+  DownloadGalleryImage
 } from "../../wailsjs/go/main/App";
-import { main } from "../../wailsjs/go/models";
+import { backend, main } from "../../wailsjs/go/models";
+import type {
+  CoverDownloadRequest,
+  HeaderDownloadRequest,
+  AvatarDownloadRequest,
+  GalleryImageDownloadRequest,
+} from "@/types/api";
 
 export async function fetchSpotifyMetadata(url: string, batch: boolean = true, delay: number = 1.0, timeout: number = 300.0) {
     const req = new main.SpotifyMetadataRequest({
@@ -133,9 +143,13 @@ export interface TaskErrorPayload {
 }
 
 export async function fetchCurrentIPInfo() { return null; }
-export async function downloadCover() { return null; }
 export async function downloadLyrics() { return null; }
 
-export async function downloadHeader() { return null; }
-export async function downloadGalleryImage() { return null; }
-export async function downloadAvatar() { return null; }
+export const downloadCover = (req: CoverDownloadRequest) =>
+  DownloadCover(backend.CoverDownloadRequest.createFrom(req));
+export const downloadHeader = (req: HeaderDownloadRequest) =>
+  DownloadHeader(backend.HeaderDownloadRequest.createFrom(req));
+export const downloadAvatar = (req: AvatarDownloadRequest) =>
+  DownloadAvatar(backend.AvatarDownloadRequest.createFrom(req));
+export const downloadGalleryImage = (req: GalleryImageDownloadRequest) =>
+  DownloadGalleryImage(backend.GalleryImageDownloadRequest.createFrom(req));
