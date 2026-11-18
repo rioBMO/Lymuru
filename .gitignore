@@ -7,11 +7,14 @@
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/logs/
 downloads/
 uploads/
 
 # Frontend (React)
 node_modules/
+*.tsbuildinfo
+frontend/package.json.md5
 
 # Wails generated bindings (auto-regenerated on every build)
 frontend/wailsjs/
